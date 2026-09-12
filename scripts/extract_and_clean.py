@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pdfplumber
 
-BASE = Path(r"F:\Semester 5\Pemrosesan Bahasa Alami\TUGAS\Tugas 1")
-CONFIG = BASE / "scripts" / "docs_config.json"
-PDF_DIR = BASE / "data" / "pdf"
-TEKS_DIR = BASE / "data" / "teks"
-REPORT_FILE = BASE / "scripts" / "extract_report.json"
+ROOT = Path(__file__).resolve().parent.parent
+CONFIG = ROOT / "scripts" / "docs_config.json"
+PDF_DIR = ROOT / "data" / "pdf"
+TEKS_DIR = ROOT / "data" / "teks"
+REPORT_FILE = ROOT / "scripts" / "extract_report.json"
 
 PAGE_SEP = "\n\n=== HALAMAN {n} ===\n\n"
 
@@ -43,6 +43,9 @@ def clean_page(text, page_no):
             continue
         if _is_heading_noise(s):
             continue
+        pm = re.match(r"^Pas(?:al|a1)(\d)", s)
+        if pm:
+            s = "Pasal " + pm.group(1)
         out.append(s)
 
     # join hyphen-broken line pairs
