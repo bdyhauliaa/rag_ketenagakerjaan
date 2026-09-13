@@ -215,6 +215,13 @@ if tanya:
 
             if doc.get("bab"):
                 st.caption(f"📂 Bab {doc['bab']}: {doc.get('judul_bab', '')}")
+            halaman = doc.get("halaman") or []
+            if halaman:
+                try:
+                    hlm = ", ".join(str(h) for h in halaman)
+                except TypeError:
+                    hlm = str(halaman)
+                st.caption(f"📄 Halaman: {hlm}")
             if doc.get("kronologi"):
                 st.caption(f"📅 Status: {doc['kronologi']}")
 

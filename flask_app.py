@@ -266,6 +266,15 @@ def build_result_html(query: str, jawaban: str | None, docs: list, llm_error: st
         pasal_header = f"Pasal {pasal_num}" if pasal_num else ""
         if ayat_num:
             pasal_header += f" Ayat ({ayat_num})"
+        halaman_list = doc.get("halaman") or []
+        try:
+            halaman_txt = ", ".join(str(h) for h in halaman_list) if halaman_list else ""
+        except TypeError:
+            halaman_txt = str(halaman_list)
+        halaman_html = (
+            f'<p class="statute-meta">📄 Halaman: {html_module.escape(halaman_txt)}</p>'
+            if halaman_txt else ""
+        )
 
         parts.append(f"""
         <!-- Card {i}: {jenis} -->
@@ -303,6 +312,7 @@ def build_result_html(query: str, jawaban: str | None, docs: list, llm_error: st
                 <div class="statute-block">
                   <p class="statute-text"><strong>{html_module.escape(pasal_header)}:</strong>
 {teks_escaped}</p>
+                  {halaman_html}
                 </div>
               </div>
             </div>
@@ -941,6 +951,12 @@ def build_page_html(chips: list[str]) -> str:
       color: #3D3530;
       white-space: pre-wrap;
       word-break: break-word;
+    }}
+    .statute-meta {{
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      color: #78716C;
+      margin-top: 8px;
     }}
 
     /* ── Footer ─────────────────────────────────────────────────── */
