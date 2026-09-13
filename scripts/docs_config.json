@@ -1,0 +1,511 @@
+{
+  "documents": [
+    {
+      "id": "uu_13_2003",
+      "source": "uu_13_2003.pdf",
+      "peraturan": "Undang-Undang Nomor 13 Tahun 2003 tentang Ketenagakerjaan",
+      "jenis": "UU",
+      "nomor": "13",
+      "tahun": "2003",
+      "batch": "A",
+      "catatan": "Induk ketenagakerjaan",
+      "status_berlaku": "berlaku_sebagaimana_diubah",
+      "mengubah": [],
+      "diubah_oleh": [
+        "uu_6_2023"
+      ],
+      "kronologi": "diubah oleh UU 6/2023 (Cipta Kerja)",
+      "urls": [
+        "https://jdih.kemnaker.go.id/asset/data_puu/2003uu013.pdf"
+      ]
+    },
+    {
+      "id": "uu_6_2023",
+      "source": "uu_6_2023.pdf",
+      "peraturan": "Undang-Undang Nomor 6 Tahun 2023 tentang Penetapan Peraturan Pemerintah Pengganti Undang-Undang Nomor 2 Tahun 2022 tentang Cipta Kerja menjadi Undang-Undang",
+      "jenis": "UU",
+      "nomor": "6",
+      "tahun": "2023",
+      "batch": "A",
+      "catatan": "EKSTRAK HANYA klaster ketenagakerjaan (Pasal 81-84 + lampiran perubahan UU 13/2003 & UU 40/2004)",
+      "status_berlaku": "berlaku",
+      "mengubah": [
+        "uu_13_2003",
+        "uu_40_2004"
+      ],
+      "diubah_oleh": [],
+      "kronologi": "mengubah UU 13/2003 dan UU 40/2004 (klaster ketenagakerjaan)",
+      "page_range": [
+        549,
+        588
+      ],
+      "urls": [
+        "https://peraturan.go.id/files/uu-no-6-tahun-2023.pdf"
+      ],
+      "pasal_markers": [
+        "81",
+        "82",
+        "83",
+        "84"
+      ]
+    },
+    {
+      "id": "uu_4_2024",
+      "source": "uu_4_2024.pdf",
+      "peraturan": "Undang-Undang Nomor 4 Tahun 2024 tentang Kesejahteraan Ibu dan Anak pada Masa Seribu Hari Pertama Kehidupan",
+      "jenis": "UU",
+      "nomor": "4",
+      "tahun": "2024",
+      "batch": "A",
+      "catatan": "Cuti melahirkan 3-6 bulan, demo question #1",
+      "status_berlaku": "berlaku",
+      "mengubah": [
+        "uu_13_2003"
+      ],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2024); mengatur cuti melahirkan 3 bulan, menyelaraskan UU 13/2003",
+      "urls": [
+        "https://peraturan.bpk.go.id/Download/349268/UU%20Nomor%204%20Tahun%202024.pdf"
+      ]
+    },
+    {
+      "id": "pp_35_2021",
+      "source": "pp_35_2021.pdf",
+      "peraturan": "Peraturan Pemerintah Nomor 35 Tahun 2021 tentang Perjanjian Kerja Waktu Tertentu, Alih Daya, Waktu Kerja dan Waktu Istirahat, dan Pemutusan Hubungan Kerja",
+      "jenis": "PP",
+      "nomor": "35",
+      "tahun": "2021",
+      "batch": "A",
+      "catatan": "PHK, PKWT, alih daya; demo question #2 & #3",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "pelaksanaan ketentuan UU 6/2023 (Cipta Kerja)",
+      "urls": [
+        "https://peraturan.bpk.go.id/Download/154582/PP%20Nomor%2035%20Tahun%202021.pdf"
+      ]
+    },
+    {
+      "id": "pp_36_2021",
+      "source": "pp_36_2021.pdf",
+      "peraturan": "Peraturan Pemerintah Nomor 36 Tahun 2021 tentang Pengupahan",
+      "jenis": "PP",
+      "nomor": "36",
+      "tahun": "2021",
+      "batch": "A",
+      "catatan": "Pengupahan/upah minimum",
+      "status_berlaku": "berlaku_sebagaimana_diubah",
+      "mengubah": [],
+      "diubah_oleh": [
+        "pp_49_2025"
+      ],
+      "kronologi": "diubah oleh PP 49/2025",
+      "urls": [
+        "https://llg-bwi.org/file_publish/Peraturan%20Pemerintah%20(PP)%20Nomor%2036%20Tahun%202021.pdf"
+      ]
+    },
+    {
+      "id": "pp_49_2025",
+      "source": "pp_49_2025.pdf",
+      "peraturan": "Peraturan Pemerintah Nomor 49 Tahun 2025 tentang Perubahan Kedua atas Peraturan Pemerintah Nomor 36 Tahun 2021 tentang Pengupahan",
+      "jenis": "PP",
+      "nomor": "49",
+      "tahun": "2025",
+      "batch": "A",
+      "catatan": "Rumus UMP terbaru (alpha 0,5-0,9), tindak lanjut MK 168/PUU-XXI/2023; sumber JDIH Kemnaker (OCR formula lebih bersih dari peraturan.go.id)",
+      "status_berlaku": "berlaku",
+      "mengubah": [
+        "pp_36_2021"
+      ],
+      "diubah_oleh": [],
+      "kronologi": "mengubah PP 36/2021",
+      "urls": [
+        "https://jdih.kemnaker.go.id/asset/data_puu/2025pp0049.pdf",
+        "https://peraturan.go.id/files/pp-no-49-tahun-2025.pdf"
+      ]
+    },
+    {
+      "id": "uu_2_2004",
+      "source": "uu_2_2004.pdf",
+      "peraturan": "Undang-Undang Nomor 2 Tahun 2004 tentang Penyelesaian Perselisihan Hubungan Industrial",
+      "jenis": "UU",
+      "nomor": "2",
+      "tahun": "2004",
+      "batch": "A",
+      "catatan": "PPHI, mediasi, sengketa PHK",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2004); dasar PPHI dan mediasi",
+      "urls": [
+        "https://peraturan.bpk.go.id/Download/30131/UU%20Nomor%202%20Tahun%202004.pdf"
+      ]
+    },
+    {
+      "id": "uu_24_2011",
+      "source": "uu_24_2011.pdf",
+      "peraturan": "Undang-Undang Nomor 24 Tahun 2011 tentang Badan Penyelenggara Jaminan Sosial",
+      "jenis": "UU",
+      "nomor": "24",
+      "tahun": "2011",
+      "batch": "A",
+      "catatan": "BPJS Ketenagakerjaan",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2011); dasar BPJS Kesehatan dan BPJS Ketenagakerjaan",
+      "urls": [
+        "https://peraturan.bpk.go.id/Download/28701/UU%2024%20Tahun%202011.pdf"
+      ]
+    },
+    {
+      "id": "pp_37_2021",
+      "source": "pp_37_2021.pdf",
+      "peraturan": "Peraturan Pemerintah Nomor 37 Tahun 2021 tentang Penyelenggaraan Program Jaminan Kehilangan Pekerjaan",
+      "jenis": "PP",
+      "nomor": "37",
+      "tahun": "2021",
+      "batch": "A",
+      "catatan": "JKP, hak pekerja saat PHK",
+      "status_berlaku": "berlaku_sebagaimana_diubah",
+      "mengubah": [],
+      "diubah_oleh": [
+        "pp_6_2025"
+      ],
+      "kronologi": "diubah oleh PP 6/2025",
+      "urls": [
+        "https://peraturan.bpk.go.id/Download/244293/PP%20Nomor%2037%20Tahun%202021.pdf"
+      ]
+    },
+    {
+      "id": "permenaker_6_2016",
+      "source": "permenaker_6_2016.pdf",
+      "peraturan": "Peraturan Menteri Ketenagakerjaan Nomor 6 Tahun 2016 tentang Tunjangan Hari Raya Keagamaan bagi Pekerja/Buruh di Perusahaan",
+      "jenis": "PERMENAKER",
+      "nomor": "6",
+      "tahun": "2016",
+      "batch": "A",
+      "catatan": "THR",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2016); dasar Tunjangan Hari Raya keagamaan",
+      "urls": [
+        "https://klikpajak.id/wp-content/uploads/2023/04/Kemnaker-No.-6-Tahun-2016.pdf",
+        "https://jdih.kemnaker.go.id/asset/data_puu/permenaker_6_2016.pdf"
+      ]
+    },
+    {
+      "id": "permenaker_7_2026",
+      "source": "permenaker_7_2026.pdf",
+      "peraturan": "Peraturan Menteri Ketenagakerjaan Nomor 7 Tahun 2026 tentang Pekerjaan Alih Daya",
+      "jenis": "PERMENAKER",
+      "nomor": "7",
+      "tahun": "2026",
+      "batch": "A",
+      "catatan": "Alih daya terbaru, tindak lanjut MK 168/PUU-XXI/2023",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2026); pekerjaan alih daya, tindak lanjut Putusan MK 168/PUU-XXI/2023",
+      "urls": [
+        "https://jdih.kemnaker.go.id/asset/data_puu/2026pmnaker007.pdf"
+      ]
+    },
+    {
+      "id": "uu_40_2004",
+      "source": "uu_40_2004.pdf",
+      "peraturan": "Undang-Undang Nomor 40 Tahun 2004 tentang Sistem Jaminan Sosial Nasional",
+      "jenis": "UU",
+      "nomor": "40",
+      "tahun": "2004",
+      "batch": "B",
+      "catatan": "SJSN",
+      "status_berlaku": "berlaku_sebagaimana_diubah",
+      "mengubah": [],
+      "diubah_oleh": [
+        "uu_6_2023"
+      ],
+      "kronologi": "diubah oleh UU 6/2023 (Cipta Kerja)",
+      "urls": [
+        "https://jdih.kemenkeu.go.id/api/download/fulltext/2004/40TAHUN2004UU.pdf"
+      ]
+    },
+    {
+      "id": "uu_21_2000",
+      "source": "uu_21_2000.pdf",
+      "peraturan": "Undang-Undang Nomor 21 Tahun 2000 tentang Serikat Pekerja/Serikat Buruh",
+      "jenis": "UU",
+      "nomor": "21",
+      "tahun": "2000",
+      "batch": "B",
+      "catatan": "",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2000); serikat pekerja/serikat buruh",
+      "urls": [
+        "https://peraturan.bpk.go.id/Download/33380/UU%20Nomor%2021%20Tahun%202000.pdf"
+      ]
+    },
+    {
+      "id": "pp_44_2015",
+      "source": "pp_44_2015.pdf",
+      "peraturan": "Peraturan Pemerintah Nomor 44 Tahun 2015 tentang Penyelenggaraan Program Jaminan Kecelakaan Kerja dan Jaminan Kematian",
+      "jenis": "PP",
+      "nomor": "44",
+      "tahun": "2015",
+      "batch": "B",
+      "catatan": "JKK & JKM",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2015); program Jaminan Kecelakaan Kerja dan Jaminan Kematian",
+      "urls": [
+        "https://bpjsketenagakerjaan.go.id/assets/uploads/peraturan/15122015_104557_PP%2044%20Tahun%202015.pdf"
+      ]
+    },
+    {
+      "id": "pp_45_2015",
+      "source": "pp_45_2015.pdf",
+      "peraturan": "Peraturan Pemerintah Nomor 45 Tahun 2015 tentang Penyelenggaraan Program Jaminan Pensiun",
+      "jenis": "PP",
+      "nomor": "45",
+      "tahun": "2015",
+      "batch": "B",
+      "catatan": "JP",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2015); program Jaminan Pensiun",
+      "urls": [
+        "https://bpjsketenagakerjaan.go.id/assets/uploads/peraturan/15122015_104556_PP%2045%20Tahun%202015.pdf"
+      ]
+    },
+    {
+      "id": "pp_46_2015",
+      "source": "pp_46_2015.pdf",
+      "peraturan": "Peraturan Pemerintah Nomor 46 Tahun 2015 tentang Penyelenggaraan Program Jaminan Hari Tua",
+      "jenis": "PP",
+      "nomor": "46",
+      "tahun": "2015",
+      "batch": "B",
+      "catatan": "JHT",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2015); program Jaminan Hari Tua",
+      "urls": [
+        "https://bpjsketenagakerjaan.go.id/assets/uploads/peraturan/15122015_104556_PP%2046%20Tahun%202015.pdf"
+      ]
+    },
+    {
+      "id": "permenaker_1_2017",
+      "source": "permenaker_1_2017.pdf",
+      "peraturan": "Peraturan Menteri Ketenagakerjaan Nomor 1 Tahun 2017 tentang Struktur dan Skala Upah",
+      "jenis": "PERMENAKER",
+      "nomor": "1",
+      "tahun": "2017",
+      "batch": "B",
+      "catatan": "Sumber BNRI (bn441-2017) menggantikan BPK yang kehilangan spasi",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2017); struktur dan skala upah",
+      "urls": [
+        "https://peraturan.go.id/files/bn441-2017.pdf"
+      ]
+    },
+    {
+      "id": "permenaker_2_2022",
+      "source": "permenaker_2_2022.pdf",
+      "peraturan": "Peraturan Menteri Ketenagakerjaan Nomor 2 Tahun 2022 tentang Tata Cara dan Persyaratan Pembayaran Manfaat Jaminan Hari Tua",
+      "jenis": "PERMENAKER",
+      "nomor": "2",
+      "tahun": "2022",
+      "batch": "B",
+      "catatan": "",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2022); tata cara dan persyaratan pembayaran manfaat JHT",
+      "urls": [
+        "https://www.gadjian.com/blog/wp-content/uploads/2022/02/Peraturan-Menteri-Ketenagakerjaan-Permenaker-Nomor-2-Tahun-2022.pdf"
+      ]
+    },
+    {
+      "id": "pp_6_2025",
+      "source": "pp_6_2025.pdf",
+      "peraturan": "Peraturan Pemerintah Nomor 6 Tahun 2025 tentang Perubahan atas Peraturan Pemerintah Nomor 37 Tahun 2021 tentang Penyelenggaraan Program Jaminan Kehilangan Pekerjaan",
+      "jenis": "PP",
+      "nomor": "6",
+      "tahun": "2025",
+      "batch": "B",
+      "catatan": "Perubahan JKP (60% upah, max 6 bulan)",
+      "status_berlaku": "berlaku",
+      "mengubah": [
+        "pp_37_2021"
+      ],
+      "diubah_oleh": [],
+      "kronologi": "mengubah PP 37/2021",
+      "urls": [
+        "https://peraturan.go.id/files/pp-no-6-tahun-2025.pdf"
+      ]
+    },
+    {
+      "id": "pp_34_2021",
+      "source": "pp_34_2021.pdf",
+      "peraturan": "Peraturan Pemerintah Nomor 34 Tahun 2021 tentang Penggunaan Tenaga Kerja Asing",
+      "jenis": "PP",
+      "nomor": "34",
+      "tahun": "2021",
+      "batch": "C",
+      "catatan": "",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2021); penggunaan Tenaga Kerja Asing",
+      "urls": [
+        "https://peraturan.go.id/files/pp34-2021bt.pdf"
+      ]
+    },
+    {
+      "id": "permenaker_8_2021",
+      "source": "permenaker_8_2021.pdf",
+      "peraturan": "Peraturan Menteri Ketenagakerjaan Nomor 8 Tahun 2021 tentang Penggunaan Tenaga Kerja Asing",
+      "jenis": "PERMENAKER",
+      "nomor": "8",
+      "tahun": "2021",
+      "batch": "C",
+      "catatan": "VERIFIKASI judul saat download",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2021); pelaksanaan penggunaan TKA",
+      "urls": [
+        "https://peraturan.bpk.go.id/Download/164392/No%208%20Tahun%202021.pdf"
+      ]
+    },
+    {
+      "id": "uu_1_1970",
+      "source": "uu_1_1970.pdf",
+      "peraturan": "Undang-Undang Nomor 1 Tahun 1970 tentang Keselamatan Kerja",
+      "jenis": "UU",
+      "nomor": "1",
+      "tahun": "1970",
+      "batch": "C",
+      "catatan": "",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (1970); keselamatan kerja",
+      "urls": [
+        "https://peraturan.bpk.go.id/Download/36609/UU%20Nomor%201%20Tahun%201970.pdf"
+      ]
+    },
+    {
+      "id": "permenaker_5_2018",
+      "source": "permenaker_5_2018.pdf",
+      "peraturan": "Peraturan Menteri Ketenagakerjaan Nomor 5 Tahun 2018 tentang Keselamatan dan Kesehatan Kerja Lingkungan Kerja",
+      "jenis": "PERMENAKER",
+      "nomor": "5",
+      "tahun": "2018",
+      "batch": "C",
+      "catatan": "Sumber BNRI (bn567-2018) menggantikan OCR kacau dari Kemnaker",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2018); K3 lingkungan kerja",
+      "urls": [
+        "https://peraturan.go.id/files/bn567-2018.pdf"
+      ]
+    },
+    {
+      "id": "uu_7_1981",
+      "source": "uu_7_1981.pdf",
+      "peraturan": "Undang-Undang Nomor 7 Tahun 1981 tentang Wajib Lapor Ketenagakerjaan di Perusahaan",
+      "jenis": "UU",
+      "nomor": "7",
+      "tahun": "1981",
+      "batch": "C",
+      "catatan": "",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (1981); wajib lapor ketenagakerjaan di perusahaan",
+      "urls": [
+        "https://peraturan.go.id/files/uu7-1981.pdf"
+      ]
+    },
+    {
+      "id": "uu_18_2017",
+      "source": "uu_18_2017.pdf",
+      "peraturan": "Undang-Undang Nomor 18 Tahun 2017 tentang Pelindungan Pekerja Migran Indonesia",
+      "jenis": "UU",
+      "nomor": "18",
+      "tahun": "2017",
+      "batch": "C",
+      "catatan": "CATATAN: PPMI adalah UU 18/2017, bukan 2018 (verifikasi saat download)",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2017); pelindungan Pekerja Migran Indonesia",
+      "urls": [
+        "https://peraturan.bpk.go.id/Download/54723/UU%20Nomor%2018%20Tahun%202017.pdf"
+      ]
+    },
+    {
+      "id": "uu_8_2016",
+      "source": "uu_8_2016.pdf",
+      "peraturan": "Undang-Undang Nomor 8 Tahun 2016 tentang Penyandang Disabilitas",
+      "jenis": "UU",
+      "nomor": "8",
+      "tahun": "2016",
+      "batch": "C",
+      "catatan": "EKSTRAK bagian ketenagakerjaan saja (Pasal 11 + 45-60 pelaksanaan pekerjaan, bukan 23-49)",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2016); hak kerja penyandang disabilitas",
+      "include_pasal": [
+        11,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60
+      ],
+      "urls": [
+        "https://peraturan.bpk.go.id/Download/26352/UU%20Nomor%208%20Tahun%202016.pdf"
+      ]
+    },
+    {
+      "id": "permenaker_21_2016",
+      "source": "permenaker_21_2016.pdf",
+      "peraturan": "Peraturan Menteri Ketenagakerjaan Nomor 21 Tahun 2016 tentang Kebutuhan Hidup Layak",
+      "jenis": "PERMENAKER",
+      "nomor": "21",
+      "tahun": "2016",
+      "batch": "C",
+      "catatan": "",
+      "status_berlaku": "berlaku",
+      "mengubah": [],
+      "diubah_oleh": [],
+      "kronologi": "berlaku (2016); kebutuhan hidup layak",
+      "urls": [
+        "https://peraturan.bpk.go.id/Download/252256/Kemnaker%20No.%2021%20Tahun%202016.pdf"
+      ]
+    }
+  ]
+}
