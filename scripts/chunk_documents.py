@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import json
 import re
 from pathlib import Path
@@ -13,7 +14,9 @@ MAX_LEN = 1500
 OVERLAP_SENT = 2
 
 PAGE_SEP = re.compile(r"^=== HALAMAN (\d+) ===$")
-PASAL_RE = re.compile(r"^Pasal\s+(\d+[A-Za-z]?)\b")
+# Marker pasal toleran terhadap artefak OCR/properti teks hasil ekstraksi:
+#   "Pasal 7" (normal), "Pasal7" (spasi hilang), "Pasa17" (l dibaca 1 oleh OCR).
+PASAL_RE = re.compile(r"^Pas(?:al|a1)\s?(\d+[A-Za-z]?)\b")
 BAB_RE = re.compile(r"^BAB\s+([IVXLC]+)\b")
 BAGIAN_RE = re.compile(r"^Bagian\s+(\S+)")
 AYAT_RE = re.compile(r"^\s*\(\s*(\d+[a-zA-Z]?)\s*\)", re.M)
@@ -286,6 +289,7 @@ def process_doc(doc):
             "judul_bab": seg["judul_bab"],
             "pasal": num,
             "ayat": "",
+            "ayat_pasal": ",".join(AYAT_RE.findall(text)),
             "poin": "",
             "halaman": pages_l,
             "kronologi": doc.get("kronologi", ""),
@@ -359,6 +363,7 @@ def process_doc(doc):
                 "judul_bab": "",
                 "pasal": ref,
                 "ayat": "",
+                "ayat_pasal": "",
                 "poin": "",
                 "halaman": sorted(epages),
                 "kronologi": doc.get("kronologi", ""),
@@ -428,7 +433,7 @@ def parse_penjelasan(lines):
             continue
         m = PASAL_RE.match(s)
         ang = re.match(r"^Angka\s+(\d+)\s+Pasal\s+(\d+[A-Za-z]?)\b", s)
-        if m and s.upper().startswith("PASAL"):
+        if m and s.upper().startswith(("PASAL", "PASA1")):
             flush()
             cur_ref = m.group(1)
             cur_lines = [ln]
@@ -474,7 +479,17 @@ def main():
     by_source = Counter(c["source"] for c in merged)
     per_source = {d["id"]: by_source.get(d["source"], 0) for d in cfg["documents"]}
     OUT_FILE.parent.mkdir(exist_ok=True)
-    OUT_FILE.write_text(json.dumps({"chunks": merged}, ensure_ascii=False, indent=1), encoding="utf-8")
+    meta = {
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        "total_chunks": len(merged),
+        "max_len": MAX_LEN,
+        "overlap_sentences": OVERLAP_SENT,
+        "schema": "data/README.md",
+    }
+    OUT_FILE.write_text(
+        json.dumps({"meta": meta, "chunks": merged}, ensure_ascii=False, indent=1),
+        encoding="utf-8",
+    )
     REPORT_FILE.write_text(
         json.dumps({"total": len(merged), "per_source": per_source},
                    ensure_ascii=False, indent=2),

@@ -1,14 +1,17 @@
+import hashlib
 import json
 import os
 import sys
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
-BASE = Path(r"F:\Semester 5\Pemrosesan Bahasa Alami\TUGAS\Tugas 1")
-CONFIG = BASE / "scripts" / "docs_config.json"
-PDF_DIR = BASE / "data" / "pdf"
+ROOT = Path(__file__).resolve().parent.parent
+CONFIG = ROOT / "scripts" / "docs_config.json"
+PDF_DIR = ROOT / "data" / "pdf"
+REPORT_FILE = ROOT / "scripts" / "download_report.json"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
@@ -19,6 +22,14 @@ try:
     import pdfplumber
 except ImportError:
     pdfplumber = None
+
+
+def sha256_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 16), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 def is_pdf_content(data):
@@ -89,6 +100,8 @@ def main():
             "detail": "",
             "url": "",
             "skip": False,
+            "sha256": "",
+            "downloaded_at": "",
         }
         dest = PDF_DIR / doc["source"]
         if verify_pdf(dest):
@@ -103,8 +116,15 @@ def main():
             if res.startswith("OK"):
                 meta["status"] = "OK"
                 meta["detail"] = res
+                meta["downloaded_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 break
             meta["detail"] = res
+        if meta["status"] in ("OK", "EXISTS") and dest.exists():
+            meta["sha256"] = sha256_of(dest)
+            if not meta["downloaded_at"]:
+                meta["downloaded_at"] = datetime.fromtimestamp(
+                    dest.stat().st_mtime
+                ).strftime("%Y-%m-%d %H:%M:%S")
         with lock:
             report.append(meta)
             label = meta["status"]
@@ -114,7 +134,7 @@ def main():
     for doc in docs:
         work(doc)
 
-    out = BASE / "scripts" / "download_report.json"
+    out = REPORT_FILE
     out.write_text(
         json.dumps({"report": report}, ensure_ascii=False, indent=2),
         encoding="utf-8",
