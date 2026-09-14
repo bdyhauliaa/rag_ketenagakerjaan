@@ -16,6 +16,7 @@ Cara pakai:
 """
 
 import json
+import re
 from pathlib import Path
 from typing import List, Dict
 
@@ -28,6 +29,20 @@ MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
 _ROOT = Path(__file__).parent.parent
 INDEX_PATH = _ROOT / "data" / "embeddings" / "faiss.index"
 META_PATH = _ROOT / "data" / "embeddings" / "metadata.json"
+
+# Ekspansi akronim membantu model embedding yang sulit mematch akronim ke
+# frasa penuh di dokumen (mis. "PHK" vs "Pemutusan Hubungan Kerja").
+# Ditegaskan pada frasa multi-kata PERTAMA (longest-match) agar konteks
+# "PHK sepihak" mencari pasal larangan (UU 13/2003 Pasal 153).
+ACRONYM_EXPANSION = {
+    "BPJS": "Badan Penyelenggara Jaminan Sosial",
+    "THR": "Tunjangan Hari Raya",
+    "K3": "Keselamatan dan Kesehatan Kerja",
+    "UMK": "Upah Minimum Kabupaten/Kota",
+    "UMP": "Upah Minimum Provinsi",
+    "PHK SEPIHAK": "Pemutusan Hubungan Kerja sepihak yang dilarang oleh pengusaha",
+    "PHK": "Pemutusan Hubungan Kerja",
+}
 # ───────────────────────────────────────────────────────────────────────────────
 
 # Singleton state — di-load saat pertama kali retrieve_documents() dipanggil
@@ -61,6 +76,21 @@ def _load() -> None:
             _metadata = json.load(f)
 
 
+def _expand_acronyms(query: str) -> str:
+    """Ganti akronim (case-insensitive, longest-match) dengan frasa penuhnya."""
+    keys = sorted(ACRONYM_EXPANSION, key=len, reverse=True)
+
+    def repl(match):
+        return ACRONYM_EXPANSION[match.group(0).upper()]
+
+    return re.sub(
+        r"\b(" + "|".join(re.escape(k) for k in keys) + r")\b",
+        repl,
+        query,
+        flags=re.IGNORECASE,
+    )
+
+
 def retrieve_documents(query: str, k: int = 5) -> List[Dict]:
     """
     Retrieval Top-K berdasarkan cosine similarity.
@@ -82,6 +112,8 @@ def retrieve_documents(query: str, k: int = 5) -> List[Dict]:
         0.8914...
     """
     _load()
+
+    query = _expand_acronyms(query)
 
     # Encode & normalisasi query (konsisten dengan cara index dibangun)
     query_vec = _model.encode(

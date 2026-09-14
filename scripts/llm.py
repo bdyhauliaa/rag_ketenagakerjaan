@@ -22,21 +22,62 @@ Integrasi Orang 3:
 """
 
 import os
+import socket
 from typing import List, Dict
 
 from dotenv import load_dotenv
+
+
+def _prefer_ipv4():
+    """
+    Paksa resolusi DNS ke IPv4 dulu sebelum IPv6.
+
+    Jaringan tertentu (mis. WiFi kampus/ISP) memiliki route IPv6 yang rusak:
+    koneksi ke generativelanguage.googleapis.com memilih alamat IPv6 lalu
+    menggantung selamanya. Dengan menyimpan getaddrinfo asli dan mengembalikan
+    hanya hasil IPv4 untuk host Google, request SDK selalu lewat jalur IPv4.
+    """
+    _orig_getaddrinfo = socket.getaddrinfo
+
+    def _ipv4_first(host, port, family=0, type=0, proto=0, flags=0):
+        result = _orig_getaddrinfo(host, port, family, type, proto, flags)
+        if host and (host.endswith("googleapis.com") or "google" in host):
+            v4 = [r for r in result if r[0] == socket.AF_INET]
+            if v4:
+                return v4
+        return result
+
+    socket.getaddrinfo = _ipv4_first
+
+
+_prefer_ipv4()
+
+
+load_dotenv()
 
 load_dotenv()
 
 # ── System Prompt ──────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = (
-    "Kamu adalah asisten hukum ketenagakerjaan Indonesia yang membantu menjawab "
-    "pertanyaan berdasarkan peraturan resmi. "
-    "Jawab HANYA berdasarkan konteks pasal-pasal yang diberikan. "
-    "Jika informasi yang ditanyakan tidak ada di konteks, katakan dengan jelas "
-    "bahwa informasi tersebut tidak ditemukan dalam dokumen yang tersedia. "
-    "Gunakan bahasa Indonesia yang formal namun mudah dipahami. "
-    "Sertakan nomor pasal dan nama peraturan yang relevan dalam jawabanmu."
+    "Kamu adalah asisten hukum ketenagakerjaan Indonesia yang membantu mahasiswa "
+    "dan masyarakat umum memahami peraturan resmi. "
+    "ATURAN WAJIB:\n"
+    "1. Jawab HANYA berdasarkan konteks pasal-pasal yang diberikan. "
+    "Jangan mengarang nomor pasal, ayat, nama peraturan, angka hari/besaran, "
+    "atau ketentuan hukum yang tidak ada di konteks.\n"
+    "2. Jika informasi yang ditanyakan tidak ada di konteks, jawab persis: "
+    "\"Informasi tidak ditemukan dalam dokumen yang tersedia.\" lalu sarankan "
+    "pertanyaan terkait yang mungkin ada jawabannya.\n"
+    "3. Humanization: gunakan bahasa Indonesia natural dan mudah dipahami, "
+    "tidak kaku seperti bunyi undang-undang, tapi TETAP pertahankan istilah "
+    "hukum penting (mis. PHK, pesangon, UMK, cuti melahirkan) dan JANGAN ubah "
+    "makna atau ketentuan hukum.\n"
+    "4. Format jawaban selalu tiga bagian:\n"
+    "**Jawaban Utama:** 1-2 kalimat inti langsung menjawab pertanyaan.\n"
+    "**Penjelasan:** uraian sederhana 2-4 kalimat untuk orang awam.\n"
+    "**Dasar Hukum:** daftar sumber (nama peraturan + Pasal + Ayat + halaman "
+    "jika ada) yang benar-benar dipakai.\n"
+    "5. Setiap klaim hukum harus bisa dilacak ke [Sumber N] yang diberikan."
 )
 # ───────────────────────────────────────────────────────────────────────────────
 
@@ -51,6 +92,13 @@ def _build_context(docs: List[Dict]) -> str:
         )
         if doc.get("ayat"):
             header += f" Ayat ({doc['ayat']})"
+        halaman = doc.get("halaman") or []
+        if halaman:
+            try:
+                hlm = ", ".join(str(h) for h in halaman)
+            except TypeError:
+                hlm = str(halaman)
+            header += f", Hlm. {hlm}"
         parts.append(f"{header}\n{doc['teks']}")
     return "\n\n".join(parts)
 
@@ -84,7 +132,7 @@ def generate_answer(query: str, docs: List[Dict]) -> str:
         return "Maaf, tidak ditemukan pasal yang relevan untuk menjawab pertanyaan ini."
 
     prompt = _build_prompt(query, docs)
-    provider = os.getenv("LLM_PROVIDER", "groq").lower()
+    provider = os.getenv("LLM_PROVIDER", "gemini").lower()
 
     if provider == "groq":
         return _call_groq(prompt)
@@ -103,13 +151,13 @@ def generate_answer(query: str, docs: List[Dict]) -> str:
 
 def _call_groq(prompt: str) -> str:
     """Groq API — Llama 3.3 70B (gratis, daftar di console.groq.com)."""
-    from groq import Groq
-
     api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
+    if not api_key or api_key.startswith("your_"):
         raise EnvironmentError(
             "GROQ_API_KEY tidak ditemukan. Isi di file .env."
         )
+
+    from groq import Groq
 
     client = Groq(api_key=api_key)
     response = client.chat.completions.create(
@@ -125,36 +173,36 @@ def _call_groq(prompt: str) -> str:
 
 
 def _call_gemini(prompt: str) -> str:
-    """Google Gemini API — gemini-1.5-flash (gratis, daftar di aistudio.google.com)."""
-    import google.generativeai as genai
-
+    """Google Gemini API — gemini-3.6-flash (gratis, daftar di aistudio.google.com)."""
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
+    if not api_key or api_key.startswith("your_"):
         raise EnvironmentError(
             "GEMINI_API_KEY tidak ditemukan. Isi di file .env."
         )
 
+    import google.generativeai as genai
+
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(
-        "gemini-1.5-flash",
+        "gemini-3.6-flash",
         system_instruction=SYSTEM_PROMPT,
     )
     response = model.generate_content(
         prompt,
-        generation_config={"temperature": 0.1, "max_output_tokens": 1024},
+        generation_config={"temperature": 0.2, "max_output_tokens": 1024},
     )
     return response.text
 
 
 def _call_openai(prompt: str) -> str:
     """OpenAI API — gpt-4o-mini (berbayar, daftar di platform.openai.com)."""
-    from openai import OpenAI
-
     api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
+    if not api_key or api_key.startswith("your_"):
         raise EnvironmentError(
             "OPENAI_API_KEY tidak ditemukan. Isi di file .env."
         )
+
+    from openai import OpenAI
 
     client = OpenAI(api_key=api_key)
     response = client.chat.completions.create(

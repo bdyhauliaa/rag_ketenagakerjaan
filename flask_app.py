@@ -2,7 +2,8 @@
 flask_app.py — Flask UI: Tanya Kerja (RAG Ketenagakerjaan)
 ============================================================
 Web app berbasis Flask yang menyajikan antarmuka Tanya Kerja
-sesuai design system stitch dengan integrasi penuh ke pipeline RAG.
+sesuai 3 tampilan UI (Minimal Chatbot, Katalog Dasar Hukum, & Naskah Reader)
+dengan integrasi penuh ke pipeline RAG dan 27 dokumen regulasi Indonesia.
 
 Cara menjalankan:
     python flask_app.py
@@ -12,20 +13,26 @@ Pastikan sebelumnya:
     2. cp .env.example .env && isi API key LLM
 """
 
+import os
 import sys
 import re
+import json
 import html as html_module
 from pathlib import Path
 from flask import Flask, request, jsonify
 
 # Tambahkan scripts/ ke path agar bisa import modul retrieval & llm
-sys.path.insert(0, str(Path(__file__).parent / "scripts"))
+ROOT_DIR = Path(__file__).parent
+sys.path.insert(0, str(ROOT_DIR / "scripts"))
 
 app = Flask(__name__)
 
-# ── Lazy-load singleton ──────────────────────────────────────────────────────────
+# ── Data Loading & Singletons ──────────────────────────────────────────────────
 _retrieve_fn = None
 _generate_fn = None
+_docs_catalog = None
+_chunks_data = None
+_doc_chunks_map = None
 
 
 def get_retrieve_fn():
@@ -45,14 +52,51 @@ def get_generate_fn():
     return _generate_fn
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────────
+def get_docs_catalog():
+    global _docs_catalog
+    if _docs_catalog is None:
+        config_path = ROOT_DIR / "scripts" / "docs_config.json"
+        if config_path.exists():
+            with open(config_path, encoding="utf-8") as f:
+                data = json.load(f)
+                _docs_catalog = data.get("documents", [])
+        else:
+            _docs_catalog = []
+    return _docs_catalog
+
+
+def get_chunks_data():
+    global _chunks_data, _doc_chunks_map
+    if _chunks_data is None:
+        chunks_path = ROOT_DIR / "data" / "chunks.json"
+        if chunks_path.exists():
+            with open(chunks_path, encoding="utf-8") as f:
+                data = json.load(f)
+                _chunks_data = data.get("chunks", [])
+        else:
+            _chunks_data = []
+
+        # Map doc_id or (jenis, nomor, tahun) to chunks
+        _doc_chunks_map = {}
+        for c in _chunks_data:
+            j = str(c.get("jenis", "")).strip().upper()
+            no = str(c.get("nomor", "")).strip()
+            th = str(c.get("tahun", "")).strip()
+            key = f"{j}_{no}_{th}"
+            if key not in _doc_chunks_map:
+                _doc_chunks_map[key] = []
+            _doc_chunks_map[key].append(c)
+
+    return _chunks_data, _doc_chunks_map
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def detect_jenis(doc: dict) -> str:
-    """Deteksi jenis peraturan dari metadata doc (case-insensitive)."""
     raw = doc.get("jenis", "").upper().strip()
     if raw in ("UU",) or "UNDANG" in raw:
         return "UU"
-    elif raw in ("PP",) or "PEMERINTAH" in raw or "PERATURAN PEMER" in raw:
+    elif raw in ("PP",) or "PEMERINTAH" in raw:
         return "PP"
     elif "PERMENAKER" in raw or "MENAKER" in raw or "MENTERI" in raw:
         return "Permenaker"
@@ -60,46 +104,51 @@ def detect_jenis(doc: dict) -> str:
 
 
 def format_source_title(doc: dict) -> str:
-    """Format judul kartu sumber yang ringkas."""
-    jenis   = doc.get("jenis", "").strip()
-    nomor   = doc.get("nomor", "").strip()
-    tahun   = doc.get("tahun", "").strip()
-    pasal   = doc.get("pasal", "").strip()
-    ayat    = doc.get("ayat", "").strip()
-    judul   = doc.get("judul_bab", "").strip()
+    jenis = doc.get("jenis", "").strip()
+    nomor = doc.get("nomor", "").strip()
+    tahun = doc.get("tahun", "").strip()
+    pasal = doc.get("pasal", "").strip()
+    ayat  = doc.get("ayat", "").strip()
 
     title = f"{jenis} No. {nomor} Tahun {tahun}"
     if pasal:
         title += f" — Pasal {pasal}"
     if ayat:
         title += f" ayat ({ayat})"
-    if judul and len(judul) < 50:
-        title += f" ({judul.title()})"
     return title
 
 
-# Warna tetap — tidak pakai dynamic Tailwind class agar JIT tidak skip
+def find_doc_id(doc: dict) -> str:
+    """Temukan doc_id di docs_config yang cocok dengan chunk metadata."""
+    catalog = get_docs_catalog()
+    j = str(doc.get("jenis", "")).strip().upper()
+    no = str(doc.get("nomor", "")).strip()
+    th = str(doc.get("tahun", "")).strip()
+
+    for item in catalog:
+        ij = str(item.get("jenis", "")).strip().upper()
+        ino = str(item.get("nomor", "")).strip()
+        ith = str(item.get("tahun", "")).strip()
+        if (j == ij or (j == "UU" and ij == "UU") or (j == "PP" and ij == "PP") or ("PERMEN" in j and "PERMEN" in ij)) and no == ino and th == ith:
+            return item.get("id", "")
+    # Fallback default doc_id
+    return f"{j.lower()}_{no}_{th}"
+
+
 SCORE_COLORS = {
     "success": {"text": "#4A7C59", "bar": "#4A7C59"},
     "warning": {"text": "#B45309", "bar": "#B45309"},
     "error":   {"text": "#991B1B", "bar": "#991B1B"},
 }
 
-JENIS_ACCENT = {
-    "UU":        "#1B3A6B",
-    "PP":        "#475569",
-    "Permenaker":"#C8861A",
-}
-
 JENIS_BADGE_STYLE = {
     "UU":        "background:#1B3A6B; color:#FFFFFF;",
     "PP":        "background:#475569; color:#FFFFFF;",
-    "Permenaker":"background:#FFFFFF; color:#C8861A; box-shadow:inset 0 0 0 1px #C8861A;",
+    "Permenaker":"background:#FFFFFF; color:#C8861A; border:1px solid #C8861A;",
 }
 
 
 def score_style(score_pct: int):
-    """Return (text_color_hex, bar_color_hex) based on score."""
     if score_pct >= 70:
         return SCORE_COLORS["success"]
     elif score_pct >= 50:
@@ -109,29 +158,18 @@ def score_style(score_pct: int):
 
 
 def clean_teks(teks: str, pasal: str) -> str:
-    """
-    Bersihkan teks chunk dari retrieval.
-    - Hapus baris pertama jika duplikat header pasal ("Pasal X")
-    - Strip whitespace berlebih
-    """
     lines = teks.strip().splitlines()
     if lines and pasal and re.match(rf'^\s*[Pp]asal\s+{re.escape(str(pasal))}\s*$', lines[0]):
         lines = lines[1:]
-    # Hapus baris kosong berlebih di awal
     while lines and not lines[0].strip():
         lines.pop(0)
     return "\n".join(lines).strip()
 
 
 def build_annotated_answer(jawaban: str, docs: list) -> str:
-    """
-    Annotasi teks jawaban LLM dengan citation pills interaktif.
-    Mengganti referensi 'Pasal X' dengan tombol yang scroll ke kartu sumber.
-    """
     if not jawaban or not docs:
         return f'<p class="mb-4">{html_module.escape(jawaban or "")}</p>'
 
-    # Buat mapping: nomor pasal -> {card_id, label}
     pasal_map: dict[str, dict] = {}
     for i, doc in enumerate(docs, 1):
         pasal = str(doc.get("pasal", "")).strip()
@@ -140,10 +178,10 @@ def build_annotated_answer(jawaban: str, docs: list) -> str:
         jenis_short = detect_jenis(doc)
         nomor = doc.get("nomor", "")
         tahun = doc.get("tahun", "")
+        doc_id = find_doc_id(doc)
         label = f"{jenis_short} No. {nomor}/{tahun} Pasal {pasal}"
-        # Simpan yang belum ada (prioritaskan urutan skor)
         if pasal not in pasal_map:
-            pasal_map[pasal] = {"card_id": f"card-{i}", "label": label}
+            pasal_map[pasal] = {"card_id": f"card-{i}", "doc_id": doc_id, "pasal": pasal, "label": label}
 
     def replace_pasal(match):
         pasal_num = match.group(1)
@@ -152,15 +190,13 @@ def build_annotated_answer(jawaban: str, docs: list) -> str:
             label_escaped = html_module.escape(info["label"])
             return (
                 f'<button class="citation-pill" '
-                f'onclick="scrollToSource(\'{info["card_id"]}\')" '
+                f'onclick="openDocument(\'{info["doc_id"]}\', \'{info["pasal"]}\')" '
                 f'type="button">[{label_escaped}]</button>'
             )
         return match.group(0)
 
-    # Ganti "Pasal XX" dengan pill (tapi jangan di dalam tanda kutip/kode)
     annotated = re.sub(r'\bPasal\s+(\d+)\b', replace_pasal, jawaban)
 
-    # Format paragraf: pisah per \n\n atau \n
     separator = '\n\n' if '\n\n' in annotated else '\n'
     paragraphs = annotated.split(separator)
     result = []
@@ -168,7 +204,6 @@ def build_annotated_answer(jawaban: str, docs: list) -> str:
         p = p.strip()
         if not p:
             continue
-        # Bold markdown **text**
         p = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', p)
         result.append(f'<p class="mb-4 text-body-lg leading-relaxed">{p}</p>')
 
@@ -176,10 +211,8 @@ def build_annotated_answer(jawaban: str, docs: list) -> str:
 
 
 def build_result_html(query: str, jawaban: str | None, docs: list, llm_error: str | None = None) -> str:
-    """Bangun HTML blok hasil: synthesis card + source cards."""
     parts = []
 
-    # ── Banner mode retrieval-only ───────────────────────────────────────────────
     if llm_error:
         parts.append(f"""
     <div class="llm-warning-banner mb-4">
@@ -195,7 +228,6 @@ def build_result_html(query: str, jawaban: str | None, docs: list, llm_error: st
       </div>
     </div>""")
 
-    # ── Synthesis card ───────────────────────────────────────────────────────────
     if jawaban:
         body_html = build_annotated_answer(jawaban, docs)
     else:
@@ -206,15 +238,14 @@ def build_result_html(query: str, jawaban: str | None, docs: list, llm_error: st
         <p style="font-family:'Courier Prime',monospace; font-size:13px; line-height:24px; color:#3D3530; white-space:pre-wrap">{html_module.escape(teks)}</p>"""
 
     parts.append(f"""
-    <!-- ── Synthesis Card ── -->
+    <!-- Sintesis Card -->
     <div class="synthesis-card">
-      <div class="synthesis-accent-bar"></div>
       <div class="synthesis-header">
         <div class="synthesis-header-left">
           <span class="synthesis-icon">
-            <span class="material-symbols-outlined" style="font-size:14px">auto_awesome</span>
+            <span class="material-symbols-outlined" style="font-size:16px">auto_awesome</span>
           </span>
-          <span class="synthesis-label">Sintesis Jawaban</span>
+          <span class="synthesis-label">Ikhtisar Jawaban</span>
         </div>
         <button onclick="copyAnswer()" title="Salin jawaban" type="button" class="copy-btn">
           <span class="material-symbols-outlined" style="font-size:18px" id="copy-icon">content_copy</span>
@@ -225,17 +256,15 @@ def build_result_html(query: str, jawaban: str | None, docs: list, llm_error: st
       </div>
     </div>""")
 
-    # ── Source cards section ─────────────────────────────────────────────────────
     n = len(docs)
     parts.append(f"""
-    <!-- ── Source Cards ── -->
+    <!-- Source Cards -->
     <div class="sources-section">
       <div class="sources-header">
         <div class="sources-header-left">
           <h2 class="sources-title">{n} Rujukan Teratas</h2>
-          <span class="sources-count-badge">{n} Dokumen</span>
         </div>
-        <span class="sources-rank-label">Peringkat Relevansi</span>
+        <span class="sources-rank-label">Paling Relevan</span>
       </div>
       <div class="source-cards-list">""")
 
@@ -246,23 +275,21 @@ def build_result_html(query: str, jawaban: str | None, docs: list, llm_error: st
         title      = html_module.escape(format_source_title(doc))
         score_pct  = min(100, int(doc.get("score", 0) * 100))
         colors     = score_style(score_pct)
-        accent     = JENIS_ACCENT.get(jenis, "#1B3A6B")
         badge_style = JENIS_BADGE_STYLE.get(jenis, "background:#1B3A6B; color:#FFFFFF;")
+
+        doc_id = find_doc_id(doc)
+        pasal_num = str(doc.get("pasal", "")).strip()
 
         is_first       = i == 1
         content_class  = "accordion-content open" if is_first else "accordion-content closed"
         content_style  = "max-height:2000px; opacity:1;" if is_first else "max-height:0px; opacity:0;"
-        toggle_label   = "Tutup detail" if is_first else "Lihat teks"
         toggle_icon    = "expand_less" if is_first else "expand_more"
 
-        # Clean teks (hilangkan duplikat header pasal)
         teks_raw  = doc.get("teks", "").strip()
-        pasal_num = str(doc.get("pasal", "")).strip()
         ayat_num  = str(doc.get("ayat", "")).strip()
         teks_clean = clean_teks(teks_raw, pasal_num)
         teks_escaped = html_module.escape(teks_clean)
 
-        # Buat header konten
         pasal_header = f"Pasal {pasal_num}" if pasal_num else ""
         if ayat_num:
             pasal_header += f" Ayat ({ayat_num})"
@@ -270,39 +297,31 @@ def build_result_html(query: str, jawaban: str | None, docs: list, llm_error: st
         parts.append(f"""
         <!-- Card {i}: {jenis} -->
         <div class="source-card" id="{card_id}">
-          <div class="source-accent-bar" style="background:{accent}"></div>
           <div class="source-card-inner">
-            <!-- Header -->
             <div class="source-card-header">
               <div class="source-card-meta">
                 <span class="jenis-badge" style="{badge_style}">{html_module.escape(jenis)}</span>
                 <h3 class="source-title">{title}</h3>
               </div>
               <div class="source-card-controls">
-                <!-- Relevance meter -->
-                <div class="relevance-meter">
-                  <span class="relevance-pct" style="color:{colors['text']}">{score_pct}%</span>
-                  <div class="relevance-track">
-                    <div class="relevance-fill" style="width:{score_pct}%; background:{colors['bar']}"></div>
-                  </div>
-                </div>
-                <!-- Toggle -->
+                <button type="button" class="naskah-btn" onclick="openDocument('{doc_id}', '{pasal_num}')">
+                  <span>{score_pct}%</span>
+                  <span class="font-medium">Lihat Naskah</span>
+                  <span class="material-symbols-outlined" style="font-size:14px">arrow_forward</span>
+                </button>
                 <button type="button"
                         data-content="{content_id}"
                         onclick="toggleAccordion('{content_id}', this)"
-                        class="accordion-toggle">
-                  <span class="acc-label">{toggle_label}</span>
-                  <span class="material-symbols-outlined acc-icon" style="font-size:16px">{toggle_icon}</span>
+                        class="accordion-toggle" title="Toggle Detail">
+                  <span class="material-symbols-outlined acc-icon" style="font-size:18px">{toggle_icon}</span>
                 </button>
               </div>
             </div>
 
-            <!-- Accordion: teks pasal -->
             <div class="{content_class}" id="{content_id}" style="{content_style}">
               <div class="accordion-inner">
                 <div class="statute-block">
-                  <p class="statute-text"><strong>{html_module.escape(pasal_header)}:</strong>
-{teks_escaped}</p>
+                  <p class="statute-text"><strong>{html_module.escape(pasal_header)}:</strong> {teks_escaped}</p>
                 </div>
               </div>
             </div>
@@ -316,10 +335,8 @@ def build_result_html(query: str, jawaban: str | None, docs: list, llm_error: st
     return "\n".join(parts)
 
 
-# ── HTML page (dirender sekali, pakai Jinja2 raw block untuk JS) ─────────────────
-
 SUGGESTION_CHIPS = [
-    "Berapa lama cuti melahirkan?",
+    "Berapa lama hak cuti melahirkan menurut UU Ketenagakerjaan?",
     "Aturan PHK sepihak bagaimana?",
     "Berapa upah lembur per jam?",
     "Hak cuti tahunan berapa hari?",
@@ -328,8 +345,7 @@ SUGGESTION_CHIPS = [
     "Batas usia minimum pekerja anak?",
 ]
 
-# HTML page dibuat sebagai string Python murni (bukan Jinja2 template)
-# agar tidak ada konflik {{ }} antara Jinja2 dan JS/Tailwind config
+
 def build_page_html(chips: list[str]) -> str:
     chips_html = "\n".join(
         f'<button type="button" onclick="setQuery(this.dataset.q)" '
@@ -343,327 +359,206 @@ def build_page_html(chips: list[str]) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tanya Kerja — RAG Ketenagakerjaan</title>
+  <title>Tanya Kerja — Konsultasi Regulasi Ketenagakerjaan Indonesia</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@600;700&family=Courier+Prime&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&family=Courier+Prime&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
   <style>
-    /* ── Reset ─────────────────────────────────────────────────── */
+    /* ── Reset & CSS Variables ─────────────────────────────────── */
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    :root {{
+      --bg-warm: #FBF9F5;
+      --bg-card: #FFFFFF;
+      --border-color: #E7E2DC;
+      --text-main: #1C1917;
+      --text-muted: #78716C;
+      --brand-navy: #1B3A6B;
+      --brand-blue: #2563EB;
+      --brand-amber: #C8861A;
+      --radius-lg: 12px;
+      --radius-md: 8px;
+    }}
     html {{ scroll-behavior: smooth; }}
     body {{
       font-family: 'Inter', sans-serif;
-      background: #F7F5F0;
-      color: #1C1917;
+      background: var(--bg-warm);
+      color: var(--text-main);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      overscroll-behavior: none;
       -webkit-font-smoothing: antialiased;
     }}
-    ::-webkit-scrollbar {{ display: none; }}
-    ::selection {{ background: #d7e2ff; color: #001a40; }}
+    ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
+    ::-webkit-scrollbar-thumb {{ background: #CBD5E1; border-radius: 3px; }}
 
     /* ── Typography ─────────────────────────────────────────────── */
     .font-display {{ font-family: 'Plus Jakarta Sans', sans-serif; }}
     .font-code    {{ font-family: 'Courier Prime', monospace; }}
 
-    /* ── Layout ─────────────────────────────────────────────────── */
-    .page-container {{
-      width: 100%;
-      max-width: 760px;
-      margin: 0 auto;
-      padding: 0 16px;
-    }}
-    @media (min-width: 768px) {{
-      .page-container {{ padding: 0 24px; }}
-    }}
-
-    /* ── Header ─────────────────────────────────────────────────── */
+    /* ── Header Navbar ─────────────────────────────────────────── */
     .site-header {{
-      position: fixed;
+      position: sticky;
       top: 0; left: 0; right: 0;
-      z-index: 40;
-      background: rgba(247, 245, 240, 0.92);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      box-shadow: 0 1px 8px rgba(0,0,0,0.02);
-      border-bottom: 1px solid rgba(231, 226, 220, 0.6);
+      z-index: 50;
+      background: rgba(251, 249, 245, 0.94);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border-color);
     }}
     .site-header-inner {{
-      height: 64px;
-      max-width: 760px;
+      max-width: 900px;
       margin: 0 auto;
-      padding: 0 16px;
+      height: 64px;
+      padding: 0 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
     }}
-    @media (min-width: 768px) {{
-      .site-header-inner {{ padding: 0 24px; }}
-    }}
-    .brand-link {{
-      display: flex;
-      flex-direction: column;
-      text-decoration: none;
-      gap: 2px;
-    }}
-    .brand-name-row {{
+    .brand-group {{
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
+      cursor: pointer;
+      text-decoration: none;
     }}
     .brand-dot {{
-      width: 8px; height: 8px;
+      width: 10px; height: 10px;
       border-radius: 50%;
-      background: #1B3A6B;
-      display: inline-block;
-      flex-shrink: 0;
+      background: var(--brand-navy);
     }}
-    .brand-name {{
+    .brand-title {{
       font-family: 'Plus Jakarta Sans', sans-serif;
       font-size: 18px;
-      font-weight: 700;
-      color: #1B3A6B;
+      font-weight: 800;
+      color: var(--brand-navy);
       letter-spacing: -0.02em;
-    }}
-    .brand-tagline {{
-      font-size: 11px;
-      font-weight: 600;
-      color: #78716C;
-      letter-spacing: 0.01em;
-      margin-left: 16px;
-      display: none;
-    }}
-    @media (min-width: 640px) {{
-      .brand-tagline {{ display: block; }}
     }}
     .nav-link {{
       font-size: 13px;
-      font-weight: 500;
-      color: #44474f;
-      text-decoration: none;
-      transition: color 150ms;
-    }}
-    .nav-link:hover {{ color: #1C1917; }}
-
-    /* ── Main ───────────────────────────────────────────────────── */
-    main {{
-      flex: 1;
-      width: 100%;
-      max-width: 760px;
-      margin: 0 auto;
-      padding: 96px 16px 64px;
-      display: flex;
-      flex-direction: column;
-    }}
-    @media (min-width: 768px) {{
-      main {{ padding: 96px 24px 64px; }}
-    }}
-
-    /* ── Input Box ──────────────────────────────────────────────── */
-    .input-wrapper {{
-      background: #FFFFFF;
-      border-radius: 12px;
-      padding: 8px;
-      box-shadow: 0 2px 8px rgba(28, 25, 23, 0.05);
-      transition: box-shadow 200ms;
-      margin-bottom: 40px;
-    }}
-    .input-wrapper:focus-within {{
-      box-shadow: 0 4px 16px rgba(27, 58, 107, 0.12);
-    }}
-    .input-row {{
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      padding: 4px 4px 0;
-    }}
-    .input-icon {{
-      font-family: 'Material Symbols Outlined';
-      font-size: 20px;
-      color: #1B3A6B;
-      opacity: 0.75;
-      margin-top: 4px;
-      flex-shrink: 0;
-      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-    }}
-    #chat-input {{
-      width: 100%;
-      background: transparent;
-      border: none;
-      outline: none;
-      resize: none;
-      font-family: 'Inter', sans-serif;
-      font-size: 15px;
-      line-height: 25.5px;
-      color: #1C1917;
-      min-height: 56px;
-      max-height: 240px;
-      overflow-y: auto;
-    }}
-    #chat-input::placeholder {{
-      color: #A8A29E;
-      font-style: italic;
-    }}
-    .input-footer {{
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: 8px;
-      padding: 6px 4px 0;
-      border-top: 1px solid rgba(231, 226, 220, 0.6);
-    }}
-    .char-counter {{
-      font-size: 11px;
       font-weight: 600;
-      color: #A8A29E;
-      letter-spacing: 0.01em;
-    }}
-    .char-counter.over-limit {{ color: #991B1B; }}
-
-    .btn-tanya {{
+      color: var(--brand-navy);
+      text-decoration: none;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: #F0EBE1;
+      transition: all 0.2s;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      background: #1B3A6B;
-      color: #FFFFFF;
+      gap: 4px;
+    }}
+    .nav-link:hover {{
+      background: #E2DBD0;
+    }}
+
+    /* ── Main Layout ────────────────────────────────────────────── */
+    .app-main {{
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 24px 20px 60px;
+      flex: 1;
+    }}
+
+    /* ── Views Switcher ─────────────────────────────────────────── */
+    .view-panel {{
+      display: none;
+    }}
+    .view-panel.active {{
+      display: block;
+    }}
+
+    /* ── Search / Input Box ─────────────────────────────────────── */
+    .search-card {{
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+      margin-bottom: 24px;
+    }}
+    .query-textarea {{
+      width: 100%;
+      min-height: 80px;
+      border: none;
+      outline: none;
+      resize: vertical;
       font-family: 'Inter', sans-serif;
       font-size: 15px;
-      font-weight: 600;
-      padding: 10px 16px;
+      color: var(--text-main);
+      background: transparent;
+      line-height: 1.5;
+    }}
+    .query-textarea::placeholder {{
+      color: #A8A29E;
+    }}
+    .search-action-row {{
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #F4F1EA;
+    }}
+    .btn-submit {{
+      background: var(--brand-navy);
+      color: #FFFFFF;
       border: none;
-      border-radius: 8px;
+      padding: 10px 20px;
+      border-radius: var(--radius-md);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-weight: 700;
+      font-size: 14px;
       cursor: pointer;
-      transition: background 150ms, box-shadow 150ms, transform 80ms;
-      box-shadow: 0 2px 4px rgba(27, 58, 107, 0.25);
-      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s;
     }}
-    .btn-tanya:hover {{
-      background: #162E5A;
-      box-shadow: 0 4px 8px rgba(27, 58, 107, 0.30);
+    .btn-submit:hover {{
+      background: #11284A;
     }}
-    .btn-tanya:active {{ transform: translateY(1px); }}
-    .btn-tanya:disabled {{
+    .btn-submit:disabled {{
       opacity: 0.6;
       cursor: not-allowed;
-      transform: none;
-    }}
-    .btn-tanya .mat-icon {{
-      font-family: 'Material Symbols Outlined';
-      font-size: 16px;
-      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
     }}
 
-    /* ── Error Alert ────────────────────────────────────────────── */
-    .error-alert {{
-      display: none;
-      margin-top: 8px;
-      background: #FFF5F5;
-      border: 1px solid #991B1B;
-      border-radius: 6px;
-      padding: 12px 16px;
-    }}
-    .error-alert.visible {{ display: block; }}
-    .error-alert p {{
-      font-family: 'Inter', sans-serif;
-      font-size: 15px;
-      font-weight: 700;
-      color: #991B1B;
-    }}
-
-    /* ── Suggestion Chips ───────────────────────────────────────── */
-    .chips-row {{
+    .chips-wrapper {{
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-top: 10px;
-      align-items: center;
-    }}
-    .chips-label {{
-      font-size: 11px;
-      font-weight: 600;
-      color: #A8A29E;
-      letter-spacing: 0.01em;
+      margin-bottom: 24px;
     }}
     .chip-btn {{
-      font-family: 'Inter', sans-serif;
-      font-size: 13px;
-      color: #78716C;
-      background: #F0EDE8;
-      border: 1px solid transparent;
-      border-radius: 6px;
-      padding: 4px 12px;
+      background: #F2EFE9;
+      border: 1px solid #E2DCD3;
+      border-radius: 16px;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: #44403C;
       cursor: pointer;
-      transition: background 150ms, color 150ms;
-      white-space: nowrap;
+      transition: all 0.2s;
     }}
     .chip-btn:hover {{
-      background: #E7E2DC;
-      color: #1C1917;
-    }}
-
-    /* ── Loading skeleton ───────────────────────────────────────── */
-    #loading-skeleton {{ display: none; margin-bottom: 40px; }}
-    #loading-skeleton.active {{ display: flex; flex-direction: column; gap: 12px; }}
-    @keyframes shimmer {{
-      0%   {{ background-position: -200% 0; }}
-      100% {{ background-position:  200% 0; }}
-    }}
-    .skeleton {{
-      background: linear-gradient(90deg, #f0ede8 25%, #e7e2dc 50%, #f0ede8 75%);
-      background-size: 200% 100%;
-      animation: shimmer 1.4s ease-in-out infinite;
-      border-radius: 4px;
-    }}
-    .skeleton-card {{
-      background: #FFFFFF;
-      border-radius: 10px;
-      padding: 20px;
-      box-shadow: 0 1px 4px rgba(28,25,23,0.05);
-    }}
-    .skeleton-row {{ display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }}
-
-    /* ── Spinner ────────────────────────────────────────────────── */
-    @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
-    .spinner {{
-      width: 14px; height: 14px;
-      border: 2px solid rgba(255,255,255,0.35);
-      border-top-color: white;
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      display: inline-block;
-    }}
-
-    /* ── LLM Warning Banner ─────────────────────────────────────── */
-    .llm-warning-banner {{
-      background: #FFFBEB;
-      border: 1px solid #B45309;
-      border-radius: 6px;
-      padding: 12px 16px;
+      background: var(--brand-navy);
+      color: #FFFFFF;
+      border-color: var(--brand-navy);
     }}
 
     /* ── Synthesis Card ─────────────────────────────────────────── */
     .synthesis-card {{
-      position: relative;
-      background: #FFFFFF;
-      border-radius: 10px;
-      padding: 24px 24px 20px 28px;
-      box-shadow: 0 2px 8px rgba(28, 25, 23, 0.04);
-      overflow: hidden;
-      margin-bottom: 40px;
-    }}
-    .synthesis-accent-bar {{
-      position: absolute;
-      top: 0; left: 0; bottom: 0;
-      width: 4px;
-      background: #1B3A6B;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 28px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.02);
     }}
     .synthesis-header {{
       display: flex;
       align-items: center;
       justify-content: space-between;
       margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #F4F1EA;
     }}
     .synthesis-header-left {{
       display: flex;
@@ -671,601 +566,939 @@ def build_page_html(chips: list[str]) -> str:
       gap: 8px;
     }}
     .synthesis-icon {{
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 24px; height: 24px;
-      border-radius: 4px;
-      background: #1B3A6B;
-      color: #FFFFFF;
-      font-family: 'Material Symbols Outlined';
-      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: #EFF6FF;
+      color: #1D4ED8;
+      display: flex; align-items: center; justify-content: center;
     }}
     .synthesis-label {{
-      font-family: 'Inter', sans-serif;
-      font-size: 13px;
-      font-weight: 500;
-      color: #1B3A6B;
-      letter-spacing: 0;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--brand-navy);
     }}
     .copy-btn {{
-      background: none;
+      background: transparent;
       border: none;
+      color: var(--text-muted);
       cursor: pointer;
       padding: 4px;
       border-radius: 4px;
-      color: #A8A29E;
-      transition: color 150ms, background 150ms;
-      display: flex;
-      align-items: center;
-      font-family: 'Material Symbols Outlined';
-      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
     }}
-    .copy-btn:hover {{ color: #1C1917; background: #F0EDE8; }}
+    .copy-btn:hover {{ color: var(--text-main); background: #F4F1EA; }}
     .synthesis-body {{
-      font-family: 'Inter', sans-serif;
-      font-size: 17px;
-      line-height: 29.75px;
-      color: #1C1917;
+      font-size: 14.5px;
+      line-height: 1.65;
+      color: #292524;
     }}
-    .synthesis-body p {{ margin-bottom: 16px; }}
-    .synthesis-body p:last-child {{ margin-bottom: 0; }}
-    .synthesis-body strong {{ font-weight: 700; color: #1C1917; }}
-
-    /* ── Citation Pills ─────────────────────────────────────────── */
     .citation-pill {{
-      display: inline-flex;
-      align-items: center;
-      padding: 1px 6px;
-      background: #EEF2FA;
-      color: #1B3A6B;
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
+      display: inline-block;
+      background: #EFF6FF;
+      color: #1E40AF;
+      font-size: 12px;
       font-weight: 600;
-      letter-spacing: 0.01em;
-      border: 1px solid #1B3A6B;
-      border-radius: 4px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      border: 1px solid #BFDBFE;
       cursor: pointer;
-      transition: background 150ms, color 150ms;
-      vertical-align: baseline;
-      margin-left: 4px;
-      white-space: nowrap;
+      margin: 0 2px;
     }}
     .citation-pill:hover {{
-      background: #1B3A6B;
-      color: #FFFFFF;
-    }}
-
-    /* ── Citation pulse ─────────────────────────────────────────── */
-    @keyframes citationPulse {{
-      0%   {{ box-shadow: 0 0 0 0 rgba(27, 58, 107, 0.30); }}
-      50%  {{ box-shadow: 0 0 0 6px rgba(27, 58, 107, 0.15); }}
-      100% {{ box-shadow: 0 0 0 0 rgba(27, 58, 107, 0.00); }}
-    }}
-    .citation-pulse {{
-      animation: citationPulse 1500ms ease-out forwards;
+      background: #DBEAFE;
     }}
 
     /* ── Sources Section ────────────────────────────────────────── */
-    .sources-section {{ display: flex; flex-direction: column; gap: 0; }}
+    .sources-section {{
+      margin-top: 12px;
+    }}
     .sources-header {{
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding-bottom: 10px;
-      margin-bottom: 4px;
-    }}
-    .sources-header-left {{
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      margin-bottom: 14px;
     }}
     .sources-title {{
       font-family: 'Plus Jakarta Sans', sans-serif;
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 700;
-      color: #1C1917;
-      letter-spacing: -0.02em;
-    }}
-    .sources-count-badge {{
-      display: inline-flex;
-      align-items: center;
-      padding: 2px 8px;
-      border-radius: 9999px;
-      background: #1B3A6B;
-      color: #FFFFFF;
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.01em;
+      color: var(--brand-navy);
     }}
     .sources-rank-label {{
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
-      color: #78716C;
-      letter-spacing: 0.01em;
+      color: var(--text-muted);
     }}
     .source-cards-list {{
       display: flex;
       flex-direction: column;
       gap: 10px;
     }}
-
-    /* ── Source Card ────────────────────────────────────────────── */
     .source-card {{
-      position: relative;
-      background: #FFFFFF;
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1.5px solid #E7E2DC;
-      box-shadow: 0 1px 3px rgba(28,25,23,0.06), 0 1px 2px rgba(28,25,23,0.04);
-      transition: border-color 200ms, box-shadow 200ms;
-    }}
-    .source-card:hover {{
-      border-color: #C8861A;
-      box-shadow: 0 4px 12px rgba(28,25,23,0.10), 0 2px 4px rgba(28,25,23,0.06);
-    }}
-    .source-accent-bar {{
-      position: absolute;
-      top: 0; left: 0; bottom: 0;
-      width: 4px;
-    }}
-    .source-card-inner {{
-      padding: 14px 16px 14px 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 0;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      transition: border-color 0.2s;
     }}
     .source-card-header {{
       display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }}
-    @media (min-width: 640px) {{
-      .source-card-header {{
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-between;
-      }}
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }}
     .source-card-meta {{
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       flex: 1;
       min-width: 0;
     }}
     .jenis-badge {{
-      display: inline-flex;
-      align-items: center;
-      padding: 2px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
       border-radius: 4px;
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.01em;
-      text-transform: uppercase;
+      letter-spacing: 0.03em;
       flex-shrink: 0;
-      white-space: nowrap;
     }}
     .source-title {{
-      font-family: 'Inter', sans-serif;
-      font-size: 15px;
+      font-size: 13.5px;
       font-weight: 600;
-      color: #1C1917;
-      line-height: 20px;
-      letter-spacing: -0.01em;
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }}
     .source-card-controls {{
       display: flex;
       align-items: center;
-      gap: 16px;
-      flex-shrink: 0;
+      gap: 10px;
     }}
-    .relevance-meter {{
+    .naskah-btn {{
+      background: #F4F1EA;
+      border: 1px solid #E2DCD3;
+      color: var(--brand-navy);
+      padding: 5px 12px;
+      border-radius: 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }}
+    .naskah-btn:hover {{
+      background: var(--brand-navy);
+      color: #FFFFFF;
+      border-color: var(--brand-navy);
+    }}
+    .accordion-toggle {{
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+    }}
+    .accordion-content {{
+      overflow: hidden;
+      transition: max-height 0.3s ease, opacity 0.3s ease;
+    }}
+    .accordion-inner {{
+      padding-top: 12px;
+      margin-top: 10px;
+      border-top: 1px dashed #E7E2DC;
+    }}
+    .statute-text {{
+      font-family: 'Courier Prime', monospace;
+      font-size: 12.5px;
+      line-height: 1.6;
+      color: #383532;
+      white-space: pre-wrap;
+    }}
+
+    /* ── Catalog View ───────────────────────────────────────────── */
+    .catalog-hero {{
+      margin-bottom: 24px;
+    }}
+    .hero-pill {{
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--brand-navy);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }}
+    .hero-title {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--brand-navy);
+      margin-bottom: 8px;
+    }}
+    .hero-desc {{
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      max-width: 720px;
+    }}
+    .info-card {{
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-bottom: 24px;
+    }}
+    .info-card-title {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--brand-navy);
+      margin-bottom: 6px;
+    }}
+    .info-card-text {{
+      font-size: 13px;
+      color: #57534E;
+      line-height: 1.5;
+    }}
+
+    .catalog-filter-bar {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 20px;
+    }}
+    .tab-group {{
+      display: flex;
+      gap: 6px;
+      background: #F0EBE1;
+      padding: 4px;
+      border-radius: 20px;
+    }}
+    .tab-btn {{
+      border: none;
+      background: transparent;
+      padding: 6px 14px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #57534E;
+      cursor: pointer;
+      transition: all 0.2s;
+    }}
+    .tab-btn.active {{
+      background: var(--brand-navy);
+      color: #FFFFFF;
+    }}
+    .catalog-search-input {{
+      padding: 8px 14px;
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      font-size: 13px;
+      outline: none;
+      width: 240px;
+      background: var(--bg-card);
+    }}
+
+    .doc-grid {{
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 24px;
+    }}
+    .doc-card {{
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }}
+    .doc-card:hover {{
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+    }}
+    .doc-main {{
+      flex: 1;
+    }}
+    .doc-header-row {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }}
+    .doc-name {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--brand-navy);
+    }}
+    .doc-desc {{
+      font-size: 13px;
+      color: #57534E;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }}
+    .doc-tags {{
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }}
+    .meta-tag {{
+      background: #F4F1EA;
+      color: #78716C;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+    }}
+
+    /* ── Document Reader View ───────────────────────────────────── */
+    .reader-hero {{
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 20px;
+    }}
+    .reader-title {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--brand-navy);
+      margin-bottom: 8px;
+      line-height: 1.3;
+    }}
+    .reader-desc {{
+      font-size: 13.5px;
+      color: #57534E;
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }}
+    .reader-meta-row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #F4F1EA;
+    }}
+    .reader-meta-pill {{
+      font-size: 12.5px;
+      color: #57534E;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #F5F2EB;
+      padding: 4px 10px;
+      border-radius: 12px;
+    }}
+
+    .reader-toolbar {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 20px;
+    }}
+    .pasal-search-box {{
+      position: relative;
+      flex: 1;
+      max-width: 320px;
+    }}
+    .pasal-search-box input {{
+      width: 100%;
+      padding: 8px 14px 8px 36px;
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      font-size: 13px;
+      outline: none;
+      background: var(--bg-card);
+    }}
+    .pasal-search-box .search-icon {{
+      position: absolute;
+      left: 12px; top: 50%;
+      transform: translateY(-50%);
+      font-size: 18px;
+      color: #A8A29E;
+    }}
+
+    .bab-header {{
+      text-align: center;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: #78716C;
+      text-transform: uppercase;
+      margin: 28px 0 16px;
+      position: relative;
+    }}
+    .bab-header::before, .bab-header::after {{
+      content: '';
+      position: absolute;
+      top: 50%;
+      width: 30%;
+      height: 1px;
+      background: var(--border-color);
+    }}
+    .bab-header::before {{ left: 0; }}
+    .bab-header::after {{ right: 0; }}
+
+    .pasal-card {{
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-bottom: 14px;
+    }}
+    .pasal-card-header {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }}
+    .pasal-number {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--brand-navy);
+    }}
+    .pasal-actions {{
+      display: flex;
+      gap: 12px;
+    }}
+    .action-link {{
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }}
+    .action-link:hover {{ color: var(--brand-navy); }}
+
+    /* ── Pagination Bar ─────────────────────────────────────────── */
+    .pagination-bar {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-color);
+    }}
+    .page-info {{
+      font-size: 13px;
+      color: var(--text-muted);
+    }}
+    .page-btns {{
       display: flex;
       align-items: center;
       gap: 6px;
     }}
-    .relevance-pct {{
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.01em;
-      min-width: 28px;
-      text-align: right;
-    }}
-    .relevance-track {{
-      width: 56px;
-      height: 4px;
-      background: #f6ece6;
-      border-radius: 2px;
-      overflow: hidden;
-    }}
-    .relevance-fill {{
-      height: 100%;
-      border-radius: 2px;
-      transition: width 400ms ease;
-    }}
-    .accordion-toggle {{
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
-      font-weight: 600;
-      color: #1B3A6B;
-      letter-spacing: 0.01em;
-      padding: 0;
-      transition: color 150ms;
-      white-space: nowrap;
-    }}
-    .accordion-toggle:hover {{ color: #162E5A; }}
-    .accordion-toggle .acc-icon {{
-      font-family: 'Material Symbols Outlined';
-      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-      transition: transform 200ms;
-    }}
-
-    /* ── Accordion ──────────────────────────────────────────────── */
-    .accordion-content {{
-      overflow: hidden;
-      transition: max-height 280ms ease, opacity 220ms ease;
-    }}
-    .accordion-content.closed {{
-      max-height: 0 !important;
-      opacity: 0;
-    }}
-    .accordion-content.open {{
-      opacity: 1;
-    }}
-    .accordion-inner {{
-      padding-top: 10px;
-      border-top: 1px solid rgba(231, 226, 220, 0.7);
-      margin-top: 10px;
-    }}
-    .statute-block {{
-      background: #F0EDE8;
+    .page-btn {{
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 6px 12px;
       border-radius: 6px;
-      padding: 14px 16px;
-      border-left: 3px solid #C8861A;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-main);
+      cursor: pointer;
     }}
-    .statute-text {{
-      font-family: 'Courier Prime', monospace;
-      font-size: 13px;
-      line-height: 24px;
-      color: #3D3530;
-      white-space: pre-wrap;
-      word-break: break-word;
+    .page-btn.active {{
+      background: var(--brand-navy);
+      color: #FFFFFF;
+      border-color: var(--brand-navy);
+    }}
+    .page-btn:disabled {{
+      opacity: 0.4; cursor: not-allowed;
     }}
 
     /* ── Footer ─────────────────────────────────────────────────── */
-    footer {{
-      background: #F7F5F0;
-      border-top: 1px solid rgba(231, 226, 220, 0.5);
-      padding: 32px 16px;
-    }}
-    .footer-inner {{
-      max-width: 760px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }}
-    .footer-text {{
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
-      font-weight: 600;
-      color: #A8A29E;
-      letter-spacing: 0.01em;
+    .site-footer {{
       text-align: center;
+      padding: 24px;
+      font-size: 12px;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border-color);
+      margin-top: auto;
     }}
 
-    /* ── Design Token Reference (tidak dipakai langsung, hanya referensi)
-       Status Success  : #4A7C59
-       Status Warning  : #B45309
-       Status Error    : #991B1B
-       Citation Pill BG: #EEF2FA
-       PP Accent/Slate : #475569
-    ─────────────────────────────────────────────────────────────────── */
+    /* ── Skeleton Loading ───────────────────────────────────────── */
+    .skeleton-box {{
+      background: linear-gradient(90deg, #F4F1EA 25%, #EBE7DF 50%, #F4F1EA 75%);
+      background-size: 200% 100%;
+      animation: loading 1.5s infinite;
+      border-radius: 6px;
+    }}
+    @keyframes loading {{
+      0% {{ background-position: 200% 0; }}
+      100% {{ background-position: -200% 0; }}
+    }}
   </style>
 </head>
-
 <body>
-  <!-- ── HEADER ─────────────────────────────────────────────────────────────── -->
+
+  <!-- Navbar Header -->
   <header class="site-header">
     <div class="site-header-inner">
-      <a class="brand-link" href="/">
-        <div class="brand-name-row">
-          <span class="brand-dot"></span>
-          <span class="brand-name font-display">Tanya Kerja</span>
-        </div>
-        <span class="brand-tagline">Tanya seputar hak dan kewajiban pekerja berdasarkan peraturan pemerintah RI</span>
+      <a class="brand-group" onclick="showView('chat')">
+        <div class="brand-dot"></div>
+        <span class="brand-title">Tanya Kerja</span>
       </a>
-      <nav>
-        <a class="nav-link" href="#tentang">Dasar Hukum &amp; Tentang</a>
-      </nav>
+      <div id="nav-actions">
+        <!-- Rendered dynamically -->
+      </div>
     </div>
   </header>
 
-  <!-- ── MAIN ───────────────────────────────────────────────────────────────── -->
-  <main>
-    <!-- Input Area -->
-    <div id="input-section">
-      <div class="input-wrapper" id="input-box">
-        <div class="input-row">
-          <span class="input-icon">chat_bubble</span>
-          <textarea
-            id="chat-input"
-            placeholder="Tuliskan pertanyaanmu tentang hak dan kewajiban pekerja..."
-            rows="2"
-            aria-label="Pertanyaan"
-          ></textarea>
-        </div>
-        <div class="input-footer">
-          <span class="char-counter" id="char-count">0 / 500</span>
-          <button class="btn-tanya" id="btn-tanya" type="button" aria-label="Kirim pertanyaan">
-            <span id="btn-label">Tanya</span>
-            <span class="mat-icon" id="btn-icon">arrow_forward</span>
+  <!-- Main Application Body -->
+  <main class="app-main">
+
+    <!-- ── VIEW 1: MINIMAL CHATBOT ── -->
+    <section id="view-chat" class="view-panel active">
+      <!-- Search Input Card -->
+      <div class="search-card">
+        <textarea id="query-input" class="query-textarea" placeholder="Berapa lama hak cuti melahirkan menurut UU Ketenagakerjaan?"></textarea>
+        <div class="search-action-row">
+          <button type="button" id="btn-tanya" class="btn-submit" onclick="submitQuery()">
+            <span>Ajukan Pertanyaan</span>
+            <span class="material-symbols-outlined" style="font-size:18px">arrow_forward</span>
           </button>
         </div>
       </div>
 
-      <!-- Error Alert -->
-      <div class="error-alert" id="error-alert" role="alert">
-        <p id="error-text"></p>
-      </div>
-
-      <!-- Suggestion Chips -->
-      <div class="chips-row" id="suggestion-chips">
-        <span class="chips-label">Coba tanya:</span>
+      <!-- Chips Suggestion -->
+      <div class="chips-wrapper">
         {chips_html}
       </div>
-    </div>
 
-    <!-- Loading Skeleton -->
-    <div id="loading-skeleton">
-      <div class="skeleton-card">
-        <div class="skeleton-row">
-          <div class="skeleton" style="width:24px; height:24px; border-radius:4px; flex-shrink:0"></div>
-          <div class="skeleton" style="width:130px; height:14px"></div>
-        </div>
-        <div class="skeleton" style="width:100%; height:14px; margin-bottom:8px"></div>
-        <div class="skeleton" style="width:100%; height:14px; margin-bottom:8px"></div>
-        <div class="skeleton" style="width:75%;  height:14px; margin-bottom:8px"></div>
-        <div class="skeleton" style="width:100%; height:14px; margin-top:8px; margin-bottom:8px"></div>
-        <div class="skeleton" style="width:85%;  height:14px"></div>
+      <!-- Loading skeleton -->
+      <div id="chat-loading" style="display:none;" class="synthesis-card">
+        <div class="skeleton-box" style="height:20px; width:40%; margin-bottom:12px"></div>
+        <div class="skeleton-box" style="height:14px; width:100%; margin-bottom:8px"></div>
+        <div class="skeleton-box" style="height:14px; width:85%; margin-bottom:8px"></div>
+        <div class="skeleton-box" style="height:14px; width:92%;"></div>
       </div>
-      <div class="skeleton" style="width:180px; height:22px; border-radius:4px; margin-top:8px"></div>
-      <div class="skeleton-card" style="margin-top:0">
-        <div style="display:flex; align-items:center; justify-content:space-between">
-          <div style="display:flex; align-items:center; gap:8px">
-            <div class="skeleton" style="width:30px; height:18px; border-radius:4px"></div>
-            <div class="skeleton" style="width:200px; height:14px"></div>
-          </div>
-          <div class="skeleton" style="width:60px; height:10px; border-radius:9999px"></div>
-        </div>
-      </div>
-      <div class="skeleton-card">
-        <div style="display:flex; align-items:center; justify-content:space-between">
-          <div style="display:flex; align-items:center; gap:8px">
-            <div class="skeleton" style="width:30px; height:18px; border-radius:4px"></div>
-            <div class="skeleton" style="width:180px; height:14px"></div>
-          </div>
-          <div class="skeleton" style="width:60px; height:10px; border-radius:9999px"></div>
-        </div>
-      </div>
-      <div class="skeleton-card">
-        <div style="display:flex; align-items:center; justify-content:space-between">
-          <div style="display:flex; align-items:center; gap:8px">
-            <div class="skeleton" style="width:30px; height:18px; border-radius:4px"></div>
-            <div class="skeleton" style="width:160px; height:14px"></div>
-          </div>
-          <div class="skeleton" style="width:60px; height:10px; border-radius:9999px"></div>
-        </div>
-      </div>
-    </div>
 
-    <!-- Result Container (diisi AJAX) -->
-    <div id="result-container"></div>
+      <!-- Results Container -->
+      <div id="result-container">
+        <!-- RAG Answer & 5 Sources injected here -->
+      </div>
+    </section>
+
+
+    <!-- ── VIEW 2: DASAR HUKUM & KATALOG REGULASI ── -->
+    <section id="view-catalog" class="view-panel">
+      <div class="catalog-hero">
+        <span class="hero-pill">DOKUMEN HUKUM & TENTANG PLATFORM</span>
+        <h1 class="hero-title">Dasar Hukum & Tentang Platform</h1>
+        <p class="hero-desc">Inisiatif independen yang menyederhanakan rujukan hukum ketenagakerjaan Indonesia secara objektif, berkeadilan, dan langsung bersumber dari undang-undang resmi.</p>
+      </div>
+
+      <div class="info-card">
+        <h2 class="info-card-title">Sistem Teruji Berbasis Regulasi Resmi</h2>
+        <p class="info-card-text">Tanya Kerja mengolah naskah resmi 27 dokumen hukum (UU, PP, Permenaker) ketenagakerjaan Indonesia. Setiap jawaban dihasilkan melalui analisis pencarian konteks hukum yang presisi tanpa mengarang pasal.</p>
+      </div>
+
+      <div class="catalog-filter-bar">
+        <div class="tab-group">
+          <button class="tab-btn active" onclick="filterCatalog('all', this)">Semua</button>
+          <button class="tab-btn" onclick="filterCatalog('UU', this)">Undang-Undang (UU)</button>
+          <button class="tab-btn" onclick="filterCatalog('PP', this)">Peraturan Pemerintah (PP)</button>
+          <button class="tab-btn" onclick="filterCatalog('Permenaker', this)">Permenaker</button>
+        </div>
+        <input type="text" id="catalog-search" class="catalog-search-input" placeholder="🔍 Cari regulasi..." oninput="renderCatalog()">
+      </div>
+
+      <div id="catalog-list" class="doc-grid">
+        <!-- Catalog cards injected here -->
+      </div>
+
+      <div class="pagination-bar" id="catalog-pagination">
+        <!-- Catalog pagination -->
+      </div>
+
+      <div style="margin-top: 32px; padding: 16px; background: #F5F2EB; border-radius: 8px; font-size: 12px; color: #78716C;">
+        <strong>DISCLAIMER:</strong> Tanya Kerja adalah sistem informasi dan literasi publik berbasis kecerdasan buatan. Jawaban yang dihasilkan bukan merupakan nasihat hukum formal (legal advice). Untuk tindakan hukum kompleks, berkonsultasilah dengan praktisi hukum profesional.
+      </div>
+    </section>
+
+
+    <!-- ── VIEW 3: ARSIP NASKAH REGULASI & READER ── -->
+    <section id="view-reader" class="view-panel">
+      <div id="reader-hero-container">
+        <!-- Reader header injected here -->
+      </div>
+
+      <div class="reader-toolbar">
+        <div class="pasal-search-box">
+          <span class="material-symbols-outlined search-icon">search</span>
+          <input type="text" id="pasal-search-input" placeholder="Lompat ke nomor pasal (misal: 82, 156)..." oninput="onPasalSearch()">
+        </div>
+        <span id="reader-status-count" style="font-size:13px; color:var(--text-muted)"></span>
+      </div>
+
+      <div id="reader-passages-list">
+        <!-- Articles & chapters injected here -->
+      </div>
+
+      <div class="pagination-bar" id="reader-pagination">
+        <!-- Reader pagination -->
+      </div>
+    </section>
+
   </main>
 
-  <!-- ── FOOTER ─────────────────────────────────────────────────────────────── -->
-  <footer id="tentang">
-    <div class="footer-inner">
-      <p class="footer-text">© 2024 Tanya Kerja — Sistem RAG berbasis 27 peraturan ketenagakerjaan resmi Indonesia</p>
-      <p class="footer-text">Sumber: UU No.13/2003, PP 35/2021, PP 36/2021, UU 24/2011, UU 40/2004, UU 21/2000, dan 21 peraturan lainnya.</p>
-    </div>
+  <footer class="site-footer">
+    © 2026 Tanya Kerja — Hak & Kewajiban Ketenagakerjaan Indonesia
   </footer>
 
-  <!-- ── SCRIPTS ─────────────────────────────────────────────────────────────── -->
   <script>
-    /* ── Auto-resize textarea ─────────────────────────────────────────────── */
-    const textarea = document.getElementById('chat-input');
-    const charCounter = document.getElementById('char-count');
+    // State global
+    let currentView = 'chat';
+    let catalogDocs = [];
+    let currentCategory = 'all';
+    let catalogPage = 1;
+    const catalogPerPage = 5;
 
-    function resizeTextarea() {{
-      textarea.style.height = 'auto';
-      textarea.style.height = Math.min(textarea.scrollHeight, 240) + 'px';
+    let currentDocId = '';
+    let currentDocData = null;
+    let readerPage = 1;
+    const readerPerPage = 5;
+    let pasalFilter = '';
+
+    // Initialize
+    window.addEventListener('DOMContentLoaded', async () => {{
+      await fetchCatalog();
+      updateNavActions();
+    }});
+
+    function updateNavActions() {{
+      const navContainer = document.getElementById('nav-actions');
+      if (currentView === 'chat') {{
+        navContainer.innerHTML = `<a class="nav-link" onclick="showView('catalog')">
+          <span>Dasar Hukum & Tentang</span>
+          <span class="material-symbols-outlined" style="font-size:16px">arrow_forward</span>
+        </a>`;
+      }} else if (currentView === 'catalog') {{
+        navContainer.innerHTML = `<a class="nav-link" onclick="showView('chat')">
+          <span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>
+          <span>Tanya Kerja</span>
+        </a>`;
+      }} else if (currentView === 'reader') {{
+        navContainer.innerHTML = `<a class="nav-link" onclick="showView('catalog')">
+          <span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>
+          <span>Kembali ke Dasar Hukum & Tentang</span>
+        </a>`;
+      }}
     }}
 
-    textarea.addEventListener('input', () => {{
-      resizeTextarea();
-      const len = textarea.value.length;
-      charCounter.textContent = len + ' / 500';
-      charCounter.classList.toggle('over-limit', len > 500);
-    }});
+    function showView(viewId) {{
+      currentView = viewId;
+      document.querySelectorAll('.view-panel').forEach(el => el.classList.remove('active'));
+      document.getElementById(`view-${{viewId}}`).classList.add('active');
+      updateNavActions();
+      window.scrollTo({{ top: 0, behavior: 'smooth' }});
+    }}
 
-    /* ── Enter = submit, Shift+Enter = newline ─────────────────────────────── */
-    textarea.addEventListener('keydown', (e) => {{
-      if (e.key === 'Enter' && !e.shiftKey) {{
-        e.preventDefault();
-        submitQuery();
-      }}
-    }});
-
-    /* ── Set query from suggestion chip ────────────────────────────────────── */
     function setQuery(q) {{
-      textarea.value = q;
-      textarea.dispatchEvent(new Event('input'));
-      textarea.focus();
+      document.getElementById('query-input').value = q;
+      submitQuery();
     }}
 
-    /* ── Toggle accordion ──────────────────────────────────────────────────── */
-    function toggleAccordion(contentId, btn) {{
-      const content = document.getElementById(contentId);
-      if (!content) return;
-      const label = btn.querySelector('.acc-label');
-      const icon  = btn.querySelector('.acc-icon');
-      const isOpen = content.classList.contains('open');
-
-      if (isOpen) {{
-        content.classList.replace('open', 'closed');
-        content.style.maxHeight = '0px';
-        content.style.opacity = '0';
-        if (label) label.textContent = 'Lihat teks';
-        if (icon)  icon.textContent  = 'expand_more';
-      }} else {{
-        content.classList.replace('closed', 'open');
-        content.style.maxHeight = content.scrollHeight + 'px';
-        content.style.opacity = '1';
-        if (label) label.textContent = 'Tutup detail';
-        if (icon)  icon.textContent  = 'expand_less';
-      }}
-    }}
-
-    /* ── Scroll & pulse highlight source card ──────────────────────────────── */
-    function scrollToSource(cardId) {{
-      const card = document.getElementById(cardId);
-      if (!card) return;
-
-      // Buka accordion jika tertutup
-      const content = card.querySelector('.accordion-content');
-      const toggleBtn = card.querySelector('.accordion-toggle');
-      if (content && content.classList.contains('closed') && toggleBtn) {{
-        toggleAccordion(content.id, toggleBtn);
-      }}
-
-      // Scroll
-      setTimeout(() => {{
-        card.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-        card.classList.add('citation-pulse');
-        setTimeout(() => card.classList.remove('citation-pulse'), 1600);
-      }}, 50);
-    }}
-
-    /* ── Copy answer ────────────────────────────────────────────────────────── */
-    function copyAnswer() {{
-      const el = document.getElementById('answer-body');
-      if (!el) return;
-      navigator.clipboard.writeText(el.innerText.trim()).then(() => {{
-        const icon = document.getElementById('copy-icon');
-        if (icon) {{
-          icon.textContent = 'done';
-          setTimeout(() => icon.textContent = 'content_copy', 2000);
-        }}
-      }}).catch(() => {{/* clipboard not available */}});
-    }}
-
-    /* ── Error handling ─────────────────────────────────────────────────────── */
-    function showError(msg) {{
-      const el = document.getElementById('error-alert');
-      document.getElementById('error-text').textContent = msg;
-      el.classList.add('visible');
-    }}
-    function hideError() {{
-      document.getElementById('error-alert').classList.remove('visible');
-    }}
-
-    /* ── Re-init first accordion after AJAX inject ──────────────────────────── */
-    function initAccordions() {{
-      // Pastikan card-1 terbuka dan max-height tepat
-      const firstContent = document.getElementById('card-1-content');
-      if (firstContent && firstContent.classList.contains('open')) {{
-        firstContent.style.maxHeight = firstContent.scrollHeight + 'px';
-      }}
-      // Tutup yang lain (sudah closed dari HTML, tapi reset style)
-      document.querySelectorAll('.accordion-content.closed').forEach(el => {{
-        el.style.maxHeight = '0px';
-        el.style.opacity = '0';
-      }});
-    }}
-
-    /* ── Main submit ─────────────────────────────────────────────────────────── */
     async function submitQuery() {{
-      const query = textarea.value.trim();
-      hideError();
+      const qInput = document.getElementById('query-input');
+      const query = qInput.value.trim();
+      if (!query) return;
 
-      // Client-side validation
-      if (!query) {{
-        showError('Pertanyaan tidak boleh kosong. Silakan ketik pertanyaan terlebih dahulu.');
-        return;
-      }}
-      if (query.length < 5) {{
-        showError('Pertanyaan terlalu pendek. Mohon masukkan pertanyaan yang lebih lengkap.');
-        return;
-      }}
-      if (query.length > 500) {{
-        showError('Pertanyaan terlalu panjang (maks 500 karakter). Mohon sederhanakan pertanyaan.');
-        return;
-      }}
-
-      // Loading state
-      const btn       = document.getElementById('btn-tanya');
-      const btnLabel  = document.getElementById('btn-label');
-      const btnIcon   = document.getElementById('btn-icon');
+      const btn = document.getElementById('btn-tanya');
       btn.disabled = true;
-      btnLabel.textContent = 'Memproses...';
-      btnIcon.innerHTML = '<span class="spinner"></span>';
-      document.getElementById('loading-skeleton').classList.add('active');
+      document.getElementById('chat-loading').style.display = 'block';
       document.getElementById('result-container').innerHTML = '';
-      document.getElementById('suggestion-chips').style.display = 'none';
 
       try {{
         const resp = await fetch('/api/tanya', {{
           method: 'POST',
           headers: {{ 'Content-Type': 'application/json' }},
-          body: JSON.stringify({{ query }}),
+          body: JSON.stringify({{ query }})
         }});
         const data = await resp.json();
+        document.getElementById('chat-loading').style.display = 'none';
 
-        document.getElementById('loading-skeleton').classList.remove('active');
-
-        if (!resp.ok || data.error) {{
-          showError(data.error || 'Terjadi kesalahan pada server. Silakan coba lagi.');
+        if (data.error) {{
+          document.getElementById('result-container').innerHTML = `
+            <div style="padding:16px; background:#FEE2E2; border:1px solid #FCA5A5; color:#991B1B; border-radius:8px; font-size:14px">
+              ${{data.error}}
+            </div>`;
         }} else {{
           document.getElementById('result-container').innerHTML = data.html;
-          initAccordions();
-          // Smooth scroll ke hasil
-          setTimeout(() => {{
-            document.getElementById('result-container').scrollIntoView({{
-              behavior: 'smooth', block: 'start'
-            }});
-          }}, 100);
         }}
-      }} catch (err) {{
-        document.getElementById('loading-skeleton').classList.remove('active');
-        showError('Gagal terhubung ke server. Periksa koneksi Anda dan coba lagi.');
+      }} catch (e) {{
+        document.getElementById('chat-loading').style.display = 'none';
+        document.getElementById('result-container').innerHTML = `
+          <div style="padding:16px; background:#FEE2E2; border:1px solid #FCA5A5; color:#991B1B; border-radius:8px; font-size:14px">
+            Gagal terhubung ke server. Periksa koneksi Anda.
+          </div>`;
       }} finally {{
         btn.disabled = false;
-        btnLabel.textContent = 'Tanya';
-        btnIcon.innerHTML = 'arrow_forward';
-        btnIcon.className = 'mat-icon';
-        document.getElementById('suggestion-chips').style.display = '';
       }}
     }}
 
-    document.getElementById('btn-tanya').addEventListener('click', submitQuery);
+    function toggleAccordion(contentId, btn) {{
+      const content = document.getElementById(contentId);
+      const icon = btn.querySelector('.acc-icon');
+      if (content.classList.contains('open')) {{
+        content.classList.remove('open');
+        content.style.maxHeight = '0px';
+        content.style.opacity = '0';
+        icon.textContent = 'expand_more';
+      }} else {{
+        content.classList.add('open');
+        content.style.maxHeight = '2000px';
+        content.style.opacity = '1';
+        icon.textContent = 'expand_less';
+      }}
+    }}
+
+    function copyAnswer() {{
+      const body = document.getElementById('answer-body');
+      if (body) {{
+        navigator.clipboard.writeText(body.innerText);
+        const icon = document.getElementById('copy-icon');
+        icon.textContent = 'check';
+        setTimeout(() => icon.textContent = 'content_copy', 2000);
+      }}
+    }}
+
+    function formatStatus(statusStr) {{
+      if (!statusStr) return 'Berlaku';
+      const clean = statusStr.replace(/_/g, ' ');
+      return clean.charAt(0).toUpperCase() + clean.slice(1);
+    }}
+
+    // CATALOG FUNCTIONS
+    async function fetchCatalog() {{
+      try {{
+        const resp = await fetch('/api/catalog');
+        const data = await resp.json();
+        catalogDocs = data.documents || [];
+        renderCatalog();
+      }} catch (e) {{
+        console.error('Failed to fetch catalog', e);
+      }}
+    }}
+
+    function filterCatalog(cat, btn) {{
+      currentCategory = cat;
+      catalogPage = 1;
+      document.querySelectorAll('.tab-group .tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderCatalog();
+    }}
+
+    function renderCatalog() {{
+      const searchVal = document.getElementById('catalog-search').value.toLowerCase().trim();
+      let filtered = catalogDocs.filter(d => {{
+        const matchCat = (currentCategory === 'all') || (d.jenis.toUpperCase() === currentCategory.toUpperCase());
+        const matchSearch = !searchVal || d.peraturan.toLowerCase().includes(searchVal) || d.catatan.toLowerCase().includes(searchVal);
+        return matchCat && matchSearch;
+      }});
+
+      const total = filtered.length;
+      const totalPages = Math.ceil(total / catalogPerPage) || 1;
+      if (catalogPage > totalPages) catalogPage = totalPages;
+
+      const start = (catalogPage - 1) * catalogPerPage;
+      const paged = filtered.slice(start, start + catalogPerPage);
+
+      const listContainer = document.getElementById('catalog-list');
+      if (paged.length === 0) {{
+        listContainer.innerHTML = `<div style="text-align:center; padding:40px; color:#78716C; font-size:14px">Tidak ada dokumen yang sesuai.</div>`;
+      }} else {{
+        listContainer.innerHTML = paged.map(d => {{
+          let badgeStyle = "background:#1B3A6B; color:#FFF;";
+          if (d.jenis === 'PP') badgeStyle = "background:#475569; color:#FFF;";
+          if (d.jenis === 'Permenaker') badgeStyle = "background:#FFF; color:#C8861A; border:1px solid #C8861A;";
+
+          return `
+          <div class="doc-card">
+            <div class="doc-main">
+              <div class="doc-header-row">
+                <span class="jenis-badge" style="${{badgeStyle}}">${{d.jenis}}</span>
+                <h3 class="doc-name">${{d.jenis}} No. ${{d.nomor}} Tahun ${{d.tahun}}</h3>
+              </div>
+              <p class="doc-desc">${{d.peraturan}} — ${{d.catatan || ''}}</p>
+              <div class="doc-tags">
+                <span class="meta-tag">${{d.total_pasal || 0}} Pasal</span>
+                ${{d.kronologi ? `<span class="meta-tag">${{d.kronologi}}</span>` : ''}}
+              </div>
+            </div>
+            <button type="button" class="naskah-btn" onclick="openDocument('${{d.id}}')">
+              <span>Lihat Naskah</span>
+              <span class="material-symbols-outlined" style="font-size:14px">arrow_forward</span>
+            </button>
+          </div>`;
+        }}).join('');
+      }}
+
+      // Pagination
+      const pagContainer = document.getElementById('catalog-pagination');
+      pagContainer.innerHTML = `
+        <span class="page-info">Menampilkan ${{start + 1}}-${{Math.min(start + catalogPerPage, total)}} dari ${{total}} regulasi</span>
+        <div class="page-btns">
+          <button class="page-btn" ${{catalogPage === 1 ? 'disabled' : ''}} onclick="changeCatalogPage(${{catalogPage - 1}})">Sebelumnya</button>
+          ${{Array.from({{length: totalPages}}, (_, i) => i + 1).map(p => `
+            <button class="page-btn ${{p === catalogPage ? 'active' : ''}}" onclick="changeCatalogPage(${{p}})">${{p}}</button>
+          `).join('')}}
+          <button class="page-btn" ${{catalogPage === totalPages ? 'disabled' : ''}} onclick="changeCatalogPage(${{catalogPage + 1}})">Berikutnya</button>
+        </div>`;
+    }}
+
+    function changeCatalogPage(p) {{
+      catalogPage = p;
+      renderCatalog();
+    }}
+
+    // READER FUNCTIONS
+    async function openDocument(docId, targetPasal = '') {{
+      currentDocId = docId;
+      readerPage = 1;
+      pasalFilter = targetPasal;
+      document.getElementById('pasal-search-input').value = targetPasal;
+      showView('reader');
+
+      document.getElementById('reader-passages-list').innerHTML = `
+        <div class="synthesis-card">
+          <div class="skeleton-box" style="height:20px; width:50%; margin-bottom:12px"></div>
+          <div class="skeleton-box" style="height:14px; width:100%; margin-bottom:8px"></div>
+          <div class="skeleton-box" style="height:14px; width:80%;"></div>
+        </div>`;
+
+      await fetchDocumentDetail();
+    }}
+
+    async function fetchDocumentDetail() {{
+      try {{
+        const resp = await fetch(`/api/document/${{currentDocId}}?page=${{readerPage}}&pasal=${{encodeURIComponent(pasalFilter)}}`);
+        currentDocData = await resp.json();
+        renderReader();
+      }} catch (e) {{
+        console.error('Failed to fetch doc detail', e);
+      }}
+    }}
+
+    function renderReader() {{
+      if (!currentDocData || !currentDocData.doc) return;
+      const d = currentDocData.doc;
+
+      // Hero Header
+      let badgeStyle = "background:#1B3A6B; color:#FFF;";
+      if (d.jenis === 'PP') badgeStyle = "background:#475569; color:#FFF;";
+      if (d.jenis === 'Permenaker') badgeStyle = "background:#FFF; color:#C8861A; border:1px solid #C8861A;";
+
+      document.getElementById('reader-hero-container').innerHTML = `
+        <div class="reader-hero">
+          <div style="margin-bottom:12px">
+            <span class="jenis-badge" style="${{badgeStyle}}">${{d.jenis.toUpperCase()}}</span>
+          </div>
+          <h1 class="reader-title">${{d.peraturan}}</h1>
+          <p class="reader-desc">${{d.catatan || 'Dokumen resmi peraturan ketenagakerjaan Indonesia.'}}</p>
+          <div class="reader-meta-row">
+            <span class="reader-meta-pill"><span class="material-symbols-outlined" style="font-size:15px; color:var(--brand-navy)">calendar_today</span> Tahun: ${{d.tahun}}</span>
+            <span class="reader-meta-pill"><span class="material-symbols-outlined" style="font-size:15px; color:var(--brand-navy)">gavel</span> Status: ${{formatStatus(d.status_berlaku || 'berlaku')}}</span>
+            <span class="reader-meta-pill"><span class="material-symbols-outlined" style="font-size:15px; color:var(--brand-navy)">description</span> Total: ${{d.total_pasal || 0}} Pasal</span>
+          </div>
+        </div>`;
+
+      // Passages
+      const passages = currentDocData.passages || [];
+      const total = currentDocData.total_passages || 0;
+      const totalPages = currentDocData.total_pages || 1;
+
+      document.getElementById('reader-status-count').textContent = `Menampilkan ${{(readerPage-1)*readerPerPage + 1}}-${{Math.min(readerPage*readerPerPage, total)}} dari ${{total}} naskah`;
+
+      const listContainer = document.getElementById('reader-passages-list');
+      if (passages.length === 0) {{
+        listContainer.innerHTML = `<div style="text-align:center; padding:40px; color:#78716C; font-size:14px">Pasal/naskah tidak ditemukan.</div>`;
+      }} else {{
+        let html = '';
+        let lastBab = '';
+
+        passages.forEach(p => {{
+          if (p.bab && p.bab !== lastBab) {{
+            lastBab = p.bab;
+            html += `<div class="bab-header">BAB ${{p.bab}} ${{p.judul_bab ? '- ' + p.judul_bab.toUpperCase() : ''}}</div>`;
+          }}
+
+          html += `
+          <div class="pasal-card" id="pasal-${{p.pasal}}">
+            <div class="pasal-card-header">
+              <span class="pasal-number">Pasal ${{p.pasal}} ${{p.ayat ? 'Ayat ('+p.ayat+')' : ''}}</span>
+              <div class="pasal-actions">
+                <a class="action-link" onclick="copyPasal('pasal-text-${{p.pasal}}')">
+                  <span class="material-symbols-outlined" style="font-size:14px">content_copy</span>
+                  <span>Salin</span>
+                </a>
+              </div>
+            </div>
+            <p id="pasal-text-${{p.pasal}}" class="statute-text">${{htmlEscape(p.teks)}}</p>
+          </div>`;
+        }});
+        listContainer.innerHTML = html;
+      }}
+
+      // Reader Pagination
+      const pagContainer = document.getElementById('reader-pagination');
+      pagContainer.innerHTML = `
+        <span class="page-info">Halaman ${{readerPage}} dari ${{totalPages}}</span>
+        <div class="page-btns">
+          <button class="page-btn" ${{readerPage === 1 ? 'disabled' : ''}} onclick="changeReaderPage(${{readerPage - 1}})">Sebelumnya</button>
+          ${{Array.from({{length: Math.min(5, totalPages)}}, (_, i) => i + 1).map(p => `
+            <button class="page-btn ${{p === readerPage ? 'active' : ''}}" onclick="changeReaderPage(${{p}})">${{p}}</button>
+          `).join('')}}
+          <button class="page-btn" ${{readerPage === totalPages ? 'disabled' : ''}} onclick="changeReaderPage(${{readerPage + 1}})">Berikutnya</button>
+        </div>`;
+    }}
+
+    function onPasalSearch() {{
+      pasalFilter = document.getElementById('pasal-search-input').value.trim();
+      readerPage = 1;
+      fetchDocumentDetail();
+    }}
+
+    function changeReaderPage(p) {{
+      readerPage = p;
+      fetchDocumentDetail();
+      window.scrollTo({{ top: 0, behavior: 'smooth' }});
+    }}
+
+    function copyPasal(elemId) {{
+      const elem = document.getElementById(elemId);
+      if (elem) {{
+        navigator.clipboard.writeText(elem.innerText);
+        alert('Teks pasal berhasil disalin!');
+      }}
+    }}
+
+    function htmlEscape(str) {{
+      return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }}
   </script>
 </body>
 </html>"""
 
 
-# Cache halaman HTML agar tidak dibangun ulang setiap request
 _CACHED_PAGE: str | None = None
 
 
@@ -1276,25 +1509,96 @@ def get_page_html() -> str:
     return _CACHED_PAGE
 
 
-# ── Routes ───────────────────────────────────────────────────────────────────────
+# ── Flask API Endpoints ────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return get_page_html(), 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
+@app.route("/api/catalog", methods=["GET"])
+def api_catalog():
+    catalog = get_docs_catalog()
+    _, doc_chunks_map = get_chunks_data()
+
+    # Enrich catalog with total pasal and total chunks count
+    enriched = []
+    for item in catalog:
+        item_copy = dict(item)
+        j = str(item.get("jenis", "")).strip().upper()
+        no = str(item.get("nomor", "")).strip()
+        th = str(item.get("tahun", "")).strip()
+        key = f"{j}_{no}_{th}"
+        chunks = doc_chunks_map.get(key, [])
+        pasal_set = set(str(c.get("pasal")).strip() for c in chunks if c.get("pasal"))
+        item_copy["total_chunks"] = len(chunks)
+        item_copy["total_pasal"] = len(pasal_set)
+        enriched.append(item_copy)
+
+    return jsonify({"documents": enriched})
+
+
+@app.route("/api/document/<doc_id>", methods=["GET"])
+def api_document_detail(doc_id):
+    catalog = get_docs_catalog()
+    _, doc_chunks_map = get_chunks_data()
+
+    # Find doc config
+    target_doc = None
+    for item in catalog:
+        if item.get("id") == doc_id:
+            target_doc = item
+            break
+
+    if not target_doc:
+        return jsonify({"error": f"Dokumen '{doc_id}' tidak ditemukan"}), 404
+
+    j = str(target_doc.get("jenis", "")).strip().upper()
+    no = str(target_doc.get("nomor", "")).strip()
+    th = str(target_doc.get("tahun", "")).strip()
+    key = f"{j}_{no}_{th}"
+
+    chunks = doc_chunks_map.get(key, [])
+    pasal_set = set(str(c.get("pasal")).strip() for c in chunks if c.get("pasal"))
+
+    target_doc_enriched = dict(target_doc)
+    target_doc_enriched["total_pasal"] = len(pasal_set)
+    target_doc_enriched["total_chunks"] = len(chunks)
+
+    # Filtering & Pagination
+    pasal_filter = request.args.get("pasal", "").strip()
+    page = int(request.args.get("page", 1))
+    per_page = int(request.args.get("per_page", 5))
+
+    filtered_chunks = chunks
+    if pasal_filter:
+        filtered_chunks = [
+            c for c in chunks if pasal_filter.lower() in str(c.get("pasal", "")).lower() or pasal_filter.lower() in str(c.get("teks", "")).lower()
+        ]
+
+    total_passages = len(filtered_chunks)
+    total_pages = max(1, (total_passages + per_page - 1) // per_page)
+    if page > total_pages:
+        page = total_pages
+
+    start_idx = (page - 1) * per_page
+    paged_chunks = filtered_chunks[start_idx : start_idx + per_page]
+
+    return jsonify({
+        "doc": target_doc_enriched,
+        "passages": paged_chunks,
+        "page": page,
+        "per_page": per_page,
+        "total_passages": total_passages,
+        "total_pages": total_pages
+    })
+
+
 @app.route("/api/tanya", methods=["POST"])
 def api_tanya():
-    """
-    POST /api/tanya
-    Body  : { "query": "..." }
-    Return: { "html": "...", "error": null }
-          | { "html": null, "error": "pesan error" }
-    """
     data  = request.get_json(silent=True) or {}
     query = (data.get("query") or "").strip()
 
-    # ── Validasi ──────────────────────────────────────────────────────────────
     if not query:
         return jsonify({"error": "Pertanyaan tidak boleh kosong."}), 400
     if len(query) < 5:
@@ -1302,7 +1606,6 @@ def api_tanya():
     if len(query) > 500:
         return jsonify({"error": "Pertanyaan terlalu panjang (maks 500 karakter). Mohon sederhanakan pertanyaan."}), 400
 
-    # ── Retrieval ─────────────────────────────────────────────────────────────
     try:
         retrieve_fn = get_retrieve_fn()
     except FileNotFoundError:
@@ -1323,27 +1626,23 @@ def api_tanya():
     if not docs:
         return jsonify({"error": "Tidak ditemukan pasal yang relevan untuk pertanyaan ini."}), 404
 
-    # ── Generation (LLM) ──────────────────────────────────────────────────────
     jawaban   = None
     llm_error = None
     try:
         generate_fn = get_generate_fn()
         jawaban = generate_fn(query, docs)
     except EnvironmentError as exc:
-        llm_error = str(exc)          # API key belum diset → mode retrieval-only
+        llm_error = str(exc)
     except Exception as exc:
-        llm_error = str(exc)          # Error lain dari LLM provider
+        llm_error = str(exc)
 
-    # ── Build HTML ────────────────────────────────────────────────────────────
     result_html = build_result_html(query, jawaban, docs, llm_error)
     return jsonify({"html": result_html, "error": None})
 
 
-# ── Entrypoint ───────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
     print("=" * 60)
-    print("  🏛  Tanya Kerja — RAG Ketenagakerjaan")
+    print("  [Tanya Kerja] RAG Ketenagakerjaan")
     print("  Buka: http://127.0.0.1:5000")
     print("=" * 60)
     app.run(debug=True, host="0.0.0.0", port=5000, use_reloader=False)
