@@ -57,10 +57,10 @@ def main():
     ap.add_argument("--quiet", action="store_true", help="hanya cetak ringkasan")
     args = ap.parse_args()
 
-    cfg = json.loads((ROOT / "scripts" / "docs_config.json").read_text(encoding="utf-8"))
+    cfg = json.loads((ROOT / "config" / "docs_config.json").read_text(encoding="utf-8"))
     docs = cfg["documents"]
     chunks = json.loads((ROOT / "data" / "chunks.json").read_text(encoding="utf-8"))["chunks"]
-    report = json.loads((ROOT / "scripts" / "chunk_report.json").read_text(encoding="utf-8")) if (ROOT / "scripts" / "chunk_report.json").exists() else {}
+    report = json.loads((ROOT / "data" / "reports" / "chunk_report.json").read_text(encoding="utf-8")) if (ROOT / "data" / "reports" / "chunk_report.json").exists() else {}
 
     per_source = {}
     for c in chunks:

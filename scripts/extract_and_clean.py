@@ -6,10 +6,10 @@ from pathlib import Path
 import pdfplumber
 
 ROOT = Path(__file__).resolve().parent.parent
-CONFIG = ROOT / "scripts" / "docs_config.json"
+CONFIG = ROOT / "config" / "docs_config.json"
 PDF_DIR = ROOT / "data" / "pdf"
 TEKS_DIR = ROOT / "data" / "teks"
-REPORT_FILE = ROOT / "scripts" / "extract_report.json"
+REPORT_FILE = ROOT / "data" / "reports" / "extract_report.json"
 
 PAGE_SEP = "\n\n=== HALAMAN {n} ===\n\n"
 

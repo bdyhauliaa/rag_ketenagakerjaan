@@ -7,7 +7,7 @@ hanya pada konteks pasal-pasal yang diberikan.
 
 Provider yang didukung (diatur lewat .env LLM_PROVIDER):
     - groq   : Groq API, model Llama 3.3 70B (gratis, cepat)
-    - gemini : Google Gemini API (gratis)
+    - gemini : Google Gemini API via google.genai (gratis)
     - openai : OpenAI API (berbayar)
 
 Cara pakai:
@@ -52,8 +52,6 @@ def _prefer_ipv4():
 
 _prefer_ipv4()
 
-
-load_dotenv()
 
 load_dotenv()
 
@@ -149,18 +147,29 @@ def generate_answer(query: str, docs: List[Dict]) -> str:
 
 # ── Provider implementations ───────────────────────────────────────────────────
 
+# Client singleton — dibuat sekali per proses (meminimalkan overhead request).
+_groq_client = None
+_genai_client = None
+_openai_client = None
+
+TIMEOUT_SECONDS = 60  # batas waktu tiap panggilan API (mencegah request menggantung)
+
+
 def _call_groq(prompt: str) -> str:
     """Groq API — Llama 3.3 70B (gratis, daftar di console.groq.com)."""
+    global _groq_client
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key or api_key.startswith("your_"):
         raise EnvironmentError(
             "GROQ_API_KEY tidak ditemukan. Isi di file .env."
         )
 
-    from groq import Groq
+    if _groq_client is None:
+        from groq import Groq
 
-    client = Groq(api_key=api_key)
-    response = client.chat.completions.create(
+        _groq_client = Groq(api_key=api_key, timeout=TIMEOUT_SECONDS)
+
+    response = _groq_client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -173,39 +182,50 @@ def _call_groq(prompt: str) -> str:
 
 
 def _call_gemini(prompt: str) -> str:
-    """Google Gemini API — gemini-3.6-flash (gratis, daftar di aistudio.google.com)."""
+    """Google Gemini API via google.genai — gemini-3.6-flash (gratis, daftar di aistudio.google.com)."""
+    global _genai_client
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key or api_key.startswith("your_"):
         raise EnvironmentError(
             "GEMINI_API_KEY tidak ditemukan. Isi di file .env."
         )
 
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        "gemini-3.6-flash",
-        system_instruction=SYSTEM_PROMPT,
-    )
-    response = model.generate_content(
-        prompt,
-        generation_config={"temperature": 0.2, "max_output_tokens": 1024},
+    if _genai_client is None:
+        _genai_client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=TIMEOUT_SECONDS * 1000),
+        )
+
+    response = _genai_client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            temperature=0.2,
+            max_output_tokens=1024,
+        ),
     )
     return response.text
 
 
 def _call_openai(prompt: str) -> str:
     """OpenAI API — gpt-4o-mini (berbayar, daftar di platform.openai.com)."""
+    global _openai_client
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key or api_key.startswith("your_"):
         raise EnvironmentError(
             "OPENAI_API_KEY tidak ditemukan. Isi di file .env."
         )
 
-    from openai import OpenAI
+    if _openai_client is None:
+        from openai import OpenAI
 
-    client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
+        _openai_client = OpenAI(api_key=api_key, timeout=TIMEOUT_SECONDS)
+
+    response = _openai_client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
