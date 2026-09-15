@@ -9,9 +9,9 @@ from pathlib import Path
 import requests
 
 ROOT = Path(__file__).resolve().parent.parent
-CONFIG = ROOT / "scripts" / "docs_config.json"
+CONFIG = ROOT / "config" / "docs_config.json"
 PDF_DIR = ROOT / "data" / "pdf"
-REPORT_FILE = ROOT / "scripts" / "download_report.json"
+REPORT_FILE = ROOT / "data" / "reports" / "download_report.json"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",

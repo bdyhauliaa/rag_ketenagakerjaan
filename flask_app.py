@@ -27,6 +27,28 @@ sys.path.insert(0, str(ROOT_DIR / "scripts"))
 
 app = Flask(__name__)
 
+
+# ── Security headers ────────────────────────────────────────────────────────────
+@app.after_request
+def add_security_headers(resp):
+    """
+    Header keamanan dasar di semua respons.
+    CSP dibuat longgar agar UI (inline style/script + Google Fonts) tetap berfungsi.
+    """
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "script-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; "
+        "img-src 'self' data:"
+    )
+    return resp
+
+
 # ── Data Loading & Singletons ──────────────────────────────────────────────────
 _retrieve_fn = None
 _generate_fn = None
@@ -55,7 +77,7 @@ def get_generate_fn():
 def get_docs_catalog():
     global _docs_catalog
     if _docs_catalog is None:
-        config_path = ROOT_DIR / "scripts" / "docs_config.json"
+        config_path = ROOT_DIR / "config" / "docs_config.json"
         if config_path.exists():
             with open(config_path, encoding="utf-8") as f:
                 data = json.load(f)
@@ -1632,8 +1654,10 @@ def api_tanya():
         generate_fn = get_generate_fn()
         jawaban = generate_fn(query, docs)
     except EnvironmentError as exc:
+        app.logger.exception("Kesalahan konfigurasi LLM (API key belum diset)")
         llm_error = str(exc)
     except Exception as exc:
+        app.logger.exception("Kesalahan panggilan LLM")
         llm_error = str(exc)
 
     result_html = build_result_html(query, jawaban, docs, llm_error)
@@ -1641,8 +1665,11 @@ def api_tanya():
 
 
 if __name__ == "__main__":
+    import os
+
+    port = int(os.getenv("PORT", "5001"))  # 5001 default; 5000 sering dipakai sistem Windows
     print("=" * 60)
     print("  [Tanya Kerja] RAG Ketenagakerjaan")
-    print("  Buka: http://127.0.0.1:5000")
+    print(f"  Buka: http://127.0.0.1:{port}")
     print("=" * 60)
-    app.run(debug=True, host="0.0.0.0", port=5000, use_reloader=False)
+    app.run(debug=False, host="0.0.0.0", port=port, use_reloader=False)

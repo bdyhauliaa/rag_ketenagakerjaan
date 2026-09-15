@@ -6,9 +6,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEXT_DIR = ROOT / "data" / "teks"
-CONFIG_FILE = ROOT / "scripts" / "docs_config.json"
+CONFIG_FILE = ROOT / "config" / "docs_config.json"
 OUT_FILE = ROOT / "data" / "chunks.json"
-REPORT_FILE = ROOT / "scripts" / "chunk_report.json"
+REPORT_FILE = ROOT / "data" / "reports" / "chunk_report.json"
 
 MAX_LEN = 1500
 OVERLAP_SENT = 2
